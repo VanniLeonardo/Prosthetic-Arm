@@ -1,7 +1,5 @@
 # Intelligent Prosthetic Arm Project
 
-![Project Banner](banner-image.png) *(Optional: Add a banner if applicable)*
-
 ## Overview
 
 The Intelligent Prosthetic Arm project aims to develop a highly functional prosthetic hand controlled via EEG brain signals, integrated with computer vision and sensors for safe, real-time object manipulation. The system will utilize image recognition, object detection, and machine learning to enable the prosthetic arm to interact with everyday objects, such as water bottles, mimicking natural hand movements.
@@ -23,7 +21,6 @@ The Intelligent Prosthetic Arm project aims to develop a highly functional prost
 - **Computer Vision for Object Detection:** The system uses pre-trained YOLO models to detect objects in real-time and adjusts the prosthetic hand’s position for successful grasping.
 - **Sensors for Safe Interaction:** The arm is equipped with force and temperature sensors to provide feedback and prevent excessive pressure on objects or the user.
 - **ROS2 Integration:** The project utilizes ROS2 for smooth communication between the various components (EEG, sensors, computer vision).
-- **Real-Time Processing:** Built for real-time interaction using a powerful RTX3090 GPU, with communication to a Raspberry Pi for practical use.
 
 ## Project Structure
 
