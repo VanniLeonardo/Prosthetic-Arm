@@ -37,5 +37,3 @@ class ObjectDetector:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
         return frame
-    
-ObjectDetector()
