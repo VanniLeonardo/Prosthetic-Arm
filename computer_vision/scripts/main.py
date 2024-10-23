@@ -4,9 +4,8 @@ import cv2
 import os
 
 # Load the object detector
-detector = ObjectDetector()
+detector = ObjectDetector(model_path=os.path.join(CV_PATH, 'models', 'yolo11m.pt'))
 
-# Load the video
 # Open a connection to the camera
 cap = cv2.VideoCapture(0)
 
@@ -22,10 +21,10 @@ while True:
         break
 
     # Use the detector on the frame
-    detections = detector.detect(frame)
+    boxes, grasp_info = detector.detect(frame)
 
     # Draw detections on the frame
-    annotated_frame = detector.annotate_frame(frame, detections)
+    annotated_frame = detector.annotate_frame(frame, boxes, grasp_info=grasp_info)
 
     # Display the resulting frame
     cv2.imshow('Frame', frame)
@@ -38,5 +37,4 @@ while True:
 cap.release()
 
 # Destroy all windows
-
 cv2.destroyAllWindows()
