@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Intelligent Prosthetic Arm project aims to develop a highly functional prosthetic hand controlled via EEG brain signals, integrated with computer vision and sensors for safe, real-time object manipulation. The system will utilize image recognition, object detection, and machine learning to enable the prosthetic arm to interact with everyday objects, such as water bottles, mimicking natural hand movements.
+The Intelligent Prosthetic Arm project is focused on developing a prosthetic hand controlled through EEG brain signals, combined with advanced computer vision and sensors for safe, real-time object interaction. The system incorporates machine learning, real-time image recognition, object detection, and sensor data to enable the prosthetic arm to mimic natural hand movements, providing a highly functional solution for users to interact with everyday objects, such as water bottles and more.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -17,10 +17,11 @@ The Intelligent Prosthetic Arm project aims to develop a highly functional prost
 - [License](#license)
 
 ## Features
-- **EEG-Based Control:** The prosthetic arm is controlled using brain signals, allowing for intuitive manipulation.
-- **Computer Vision for Object Detection:** The system uses pre-trained YOLO models to detect objects in real-time and adjusts the prosthetic hand’s position for successful grasping.
-- **Sensors for Safe Interaction:** The arm is equipped with force and temperature sensors to provide feedback and prevent excessive pressure on objects or the user.
-- **ROS2 Integration:** The project utilizes ROS2 for smooth communication between the various components (EEG, sensors, computer vision).
+- **EEG-Based Control:** The prosthetic arm is operated using brain signals (EEG), allowing intuitive control and natural movement.
+- **Computer Vision for Object Detection and Grasping:** The system uses YOLOv11 for real-time object detection, positioning the prosthetic hand correctly for successful grasps based on feedback.
+- **Real-Time Grasp Detection:** Integrated computer vision for determining the best grasp configuration for various objects using bounding boxes, segmentation, and a Vision Language Model (VLM).
+- **Sensors for Safe Interaction:** Equipped with force and temperature sensors to ensure safe and adaptive interaction with objects.
+- **ROS2 Integration:** ROS2 is used for seamless communication between the arm, computer vision, EEG module, and sensor feedback.
 
 ## Project Structure
 
@@ -28,15 +29,18 @@ The Intelligent Prosthetic Arm project aims to develop a highly functional prost
 
 prosthetic_arm/
 ├── computer_vision/            # Vision processing modules
-│   ├── data/
-│   └── models/
-│   └── scripts/
-│   └── requirements.txt
-│   └── README.md       
+│   ├── frames/
+│   ├── models/
+│   ├── scripts/
+│   ├── requirements.txt
+│   ├── requirements_no_dep.txt
+│   └── README.md
 │
 ├── robotics/                   # Robotic control modules
+│   └── arm_control.py
 │
 │── neuroscience/               # EEG Data Processing modules
+│   └── eeg_processing.py
 │
 │── docker/                     # Container configuration
 │   └── Dockerfile
@@ -46,6 +50,7 @@ prosthetic_arm/
 │           
 ├── requirements.txt            # Project dependencies
 └── README.md                   # Main documentation
+
 ```
 
 ## Installation
@@ -81,33 +86,25 @@ docker run -it --rm prosthetic_arm_image
 
 ## Usage
 
-1. **Object Detection**
-Run the object detection script to detect objects in real-time using your system camera:
+1. **Object Detection and Grasp Validation**
+Run the ObjectDetector and GraspValidator classes to detect objects and validate grasping in real-time using your system camera:
 ```bash
-python3 computer_vision/scripts/object_detection.py
+python3 computer_vision/scripts/main.py
 ```
-
-2. **Grasp Detection**
-Execute grasp detection for ensuring the correct positioning of the prosthetic hand:
-```bash
-python3 computer_vision/scripts/grasp_detection.py
-```
-
-3. **Real-Time Testing**
-Run the system in real-time, sending data to the Raspberry Pi for inference during use.
 
 ## Roadmap
-- [x] Set up object detection with YOLOv8
-- [ ] Implement grasp detection using bounding boxes and segmentation
-- [ ] Integrate sensor feedback with computer vision
-- [ ] EEG signal integration for real-time control
-- [ ] Refine ROS2 communication for seamless module interaction
+- [x] Set up object detection with YOLOv11
+- [x] Implement grasp detection using bounding boxes
+- [ ] Integrate EEG signal processing for real-time control
+- [ ] Finalize force and temperature sensor integration
+- [ ] Optimize communication with Raspberry Pi for real-time operation
 - [ ] Expand to detect various object types beyond water bottles
 - [ ] Real-world testing on prosthetic hardware
+- [ ] Safety features for preventing excessive pressure
 
 
 ## Contributors
-- **Leonardo Vanni**  - [info@leonardovanni.com](mailto:info@leonardovanni.com)
+- **Leonardo Vanni**  - [leonardo.vanni@studbocconi.it](mailto:leonardo.vanni@studbocconi.it)
 - **Anna Notaro** - [anna.notaro@studbocconi.it](mailto:anna.notaro@studbocconi.it)
 - **Gianluca Fugante**  - [gianlucafugante@gmail.com](mailto:gianlucafugante@gmail.com)
 
