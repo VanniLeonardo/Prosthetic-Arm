@@ -3,3 +3,4 @@ torchvision
 numpy
 opencv-python
 ultralytics
+scikit-learn

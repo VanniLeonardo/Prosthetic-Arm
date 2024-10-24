@@ -166,3 +166,4 @@ cython_debug/
 COMMANDS.txt
 prosthetic_env/
 computer_vision/models/*
+computer_vision/frames/*
