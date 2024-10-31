@@ -17,7 +17,7 @@ class GraspDetectionApp:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         
-        self.detector = ObjectDetector(model_path=os.path.join(CV_PATH, 'models', 'yolo11n.pt'))
+        self.detector = ObjectDetector(model_path=os.path.join(CV_PATH, 'models', 'yolo11l.pt'))
         self.validator = GraspValidator()
         
         # Performance monitoring
@@ -57,7 +57,6 @@ class GraspDetectionApp:
         return self.annotate_frame(frame, results), results
     
     def annotate_frame(self, frame: np.ndarray, results: list) -> np.ndarray:
-
         annotated = frame.copy()
         
         for result in results:
@@ -72,8 +71,10 @@ class GraspDetectionApp:
             else:
                 color = (0, 0, 255)  # Red for not graspable
             
+            # Draw bounding box
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             
+            # Draw center point
             center_x, center_y = grasp_info['center_point']
             cv2.circle(annotated, (center_x, center_y), 5, (255, 0, 0), -1)
             
@@ -84,23 +85,37 @@ class GraspDetectionApp:
                     (int(center_x + grip_width/2), center_y),
                     (255, 255, 0), 2)
             
+            # Only draw approach vectors if object is graspable
+            if validation['is_graspable']:
+                for vector in grasp_info['approach_vectors']:
+                    if vector['confidence'] > 0.5:  # Only draw high-confidence vectors
+                        end_x = int(center_x + 50 * vector['vector'][0])
+                        end_y = int(center_y + 50 * vector['vector'][1])
+                        cv2.arrowedLine(annotated, 
+                                    (center_x, center_y),
+                                    (end_x, end_y),
+                                    (0, 255, 255), 2)
+            
             # Add text information
             confidence = f"{validation['confidence']:.2f}"
             cv2.putText(annotated, 
-                       f"Grasp: {validation['is_graspable']} ({confidence})",
-                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    f"Grasp: {validation['is_graspable']} ({confidence})",
+                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
             # Add reason if not graspable
             if not validation['is_graspable']:
                 cv2.putText(annotated,
-                           validation['reason'][:20],
-                           (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        validation['reason'][:20],
+                        (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
+        # Draw FPS
         cv2.putText(annotated,
-                   f"FPS: {self.fps:.1f}",
-                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                f"FPS: {self.fps:.1f}",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
         return annotated
+
+
     
     def update_fps(self, frame_time: float) -> None:
 
