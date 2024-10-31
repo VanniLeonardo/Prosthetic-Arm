@@ -161,9 +161,12 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Vscode
+.vscode/
+
 
 # Project Specific
 COMMANDS.txt
-prosthetic_env/
+computer_vision/computer_vision_env/
 computer_vision/models/*
 computer_vision/frames/*

@@ -25,7 +25,7 @@ class GraspDetectionApp:
         self.frame_times = []
         self.max_frame_history = 30
         
-    def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, dict]:
+    def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, list]:
         """Process a single frame and return annotated frame and detection info"""
         # Get detections and grasp info
         boxes, grasp_info = self.detector.detect(frame)
