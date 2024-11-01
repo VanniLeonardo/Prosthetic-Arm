@@ -1,7 +1,9 @@
+from re import S
 import cv2
 import numpy as np
 from object_detection import ObjectDetector
 from grasp_validation import GraspValidator
+from grasp_pose_evaluator import GraspPoseEvaluator
 import time
 from typing import Tuple
 import os
@@ -17,8 +19,9 @@ class GraspDetectionApp:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         
-        self.detector = ObjectDetector(model_path=os.path.join(CV_PATH, 'models', 'yolo11l.pt'))
+        self.detector = ObjectDetector(model_path=os.path.join(CV_PATH, 'models', 'yolo11n.pt'))
         self.validator = GraspValidator()
+        self.grasp_evaluator = GraspPoseEvaluator()
         
         # Performance monitoring
         self.fps = 0
@@ -114,8 +117,6 @@ class GraspDetectionApp:
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
         return annotated
-
-
     
     def update_fps(self, frame_time: float) -> None:
 
@@ -140,6 +141,8 @@ class GraspDetectionApp:
                             
                         try:
                             annotated_frame, results = self.process_frame(frame)
+                            if SHOW_GRASP_POSE:
+                                annotated_frame = self.grasp_evaluator.show_grasp_pose(annotated_frame)
                             
                             frame_time = time.time() - start_time
                             self.update_fps(frame_time)
@@ -173,4 +176,5 @@ def main() -> None:
         traceback.print_exc()
 
 if __name__ == "__main__":
+    SHOW_GRASP_POSE = True
     main()
