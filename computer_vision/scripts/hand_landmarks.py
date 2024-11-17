@@ -14,6 +14,8 @@ class GraspPoseEvaluator:
 
     def start_camera(self):
         self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():
             raise ValueError("Could not open camera")
         
