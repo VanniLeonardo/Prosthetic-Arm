@@ -101,90 +101,68 @@ class ObjectDetector:
         return recommended_width
 
     def calculate_approach_vectors(self, roi: np.ndarray) -> List[Dict]:
-        """Calculate possible approach vectors for grasping"""
+        """Calculate possible approach vectors for grasping a water bottle"""
         height, width = roi.shape[:2]
 
         # Convert to grayscale and find edges
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, self.edge_threshold, self.edge_threshold * 2)
 
-        # Calculate the gradient direction
-        gradient_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        gradient_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        # Find contours
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Calculate gradient magnitude and direction
-        magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
-        direction = np.arctan2(gradient_y, gradient_x)
+        if not contours:
+            return []
 
-        # Find dominant gradient directions
-        mag_mask = magnitude > np.mean(magnitude)
-        if np.any(mag_mask):
-            hist, bins = np.histogram(
-                direction[mag_mask], bins=8, range=(-np.pi, np.pi)
-            )
+        # Find the largest contour
+        largest_contour = max(contours, key=cv2.contourArea)
 
-            # Convert histogram into approach vectors
-            approach_vectors = []
-            max_hist = np.max(hist) if np.max(hist) > 0 else 1
-            for angle_idx in range(len(hist)):
-                if hist[angle_idx] > np.mean(hist):
-                    angle = (bins[angle_idx] + bins[angle_idx + 1]) / 2
-                    confidence = hist[angle_idx] / max_hist
+        # Skip if the contour is too small
+        if cv2.contourArea(largest_contour) < self.min_contour_area:
+            return []
 
-                    approach_vectors.append(
-                        {
-                            "angle": angle,
-                            "confidence": confidence,
-                            "vector": (np.cos(angle), np.sin(angle)),
-                        }
-                    )
-        else:
-            approach_vectors = []
+        # Calculate moments of the largest contour
+        M = cv2.moments(largest_contour)
+        if M['m00'] == 0:
+            return []
+        
+        # Calculate orientation using PCA
+        pts = largest_contour.reshape(-1, 2)
+        mean, eigenvectors = cv2.PCACompute(pts.astype(np.float32), mean=None)
+        principal_vector = eigenvectors[0]
+
+        angle = np.arctan2(principal_vector[1], principal_vector[0])
+
+        # Calculate aspect ratio to determine if object is more vertical or horizontal
+        aspect_ratio = height / width
+        
+        # Adjust confidence based on object orientation and centroid position
+        confidence = 1.0
+        if aspect_ratio > 1.5:  # Vertical object (like a bottle)
+            # Prefer horizontal approach vectors
+            perpendicular_angle1 = 0  # From right
+            perpendicular_angle2 = np.pi  # From left
+                
+        else:  # Horizontal or square object
+            # Use PCA-based approach vectors
+            perpendicular_angle1 = angle + np.pi / 2
+            perpendicular_angle2 = angle - np.pi / 2
+            
+
+        approach_vectors = [
+            {
+                'angle': perpendicular_angle1,
+                'confidence': confidence,
+                'vector': (float(np.cos(perpendicular_angle1)), float(np.sin(perpendicular_angle1))),
+            },
+            {
+                'angle': perpendicular_angle2,
+                'confidence': confidence,
+                'vector': (float(np.cos(perpendicular_angle2)), float(np.sin(perpendicular_angle2))),
+            }
+        ]
 
         return approach_vectors
-
-        # def calculate_approach_vectors(self, roi: np.ndarray) -> List[Dict]:
-        # """Calculate possible approach vectors for grasping using principal component analysis"""
-        # # Convert to grayscale and threshold
-        # gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        # _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # # Find contours
-        # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # if not contours:
-        #     return []
-
-        # # Find the largest contour
-        # largest_contour = max(contours, key=cv2.contourArea)
-
-        # # Skip if the contour is too small
-        # if cv2.contourArea(largest_contour) < self.min_contour_area:
-        #     return []
-
-        # # Calculate moments of the largest contour
-        # M = cv2.moments(largest_contour)
-        # if M['m00'] == 0:
-        #     return []
-
-        # # Calculate centroid
-        # cX = int(M['m10'] / M['m00'])
-        # cY = int(M['m01'] / M['m00'])
-
-        # # Calculate orientation using PCA
-        # pts = largest_contour.reshape(-1, 2)
-        # mean, eigenvectors = cv2.PCACompute(pts.astype(np.float32), mean=None)
-        # principal_vector = eigenvectors[0]
-
-        # angle = np.arctan2(principal_vector[1], principal_vector[0])
-
-        # approach_vectors = [{
-        #     'angle': angle,
-        #     'confidence': 1.0,  # Since PCA is deterministic, confidence is set to 1
-        #     'vector': (float(principal_vector[0]), float(principal_vector[1]))
-        # }]
-
-        # return approach_vectors
 
     def annotate_frame(
         self,
