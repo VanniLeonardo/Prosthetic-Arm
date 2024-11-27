@@ -1,0 +1,27 @@
+ # Byte-compiled files
+*.pyc
+*.pyo
+__pycache__/
+
+# Virtual environment
+.venv/
+env/
+qt-env/
+
+# IDE configurations
+.idea/
+.vscode/
+*.swp
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# System files
+.DS_Store
+Thumbs.db
