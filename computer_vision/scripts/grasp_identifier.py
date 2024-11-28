@@ -3,6 +3,7 @@ import numpy as np
 
 from hand_landmarks import GraspPoseEvaluator
 from object_detection import ObjectDetector
+import mediapipe as mp
 
 
 class GraspIdentifier:
@@ -175,17 +176,22 @@ class GraspIdentifier:
         - Hand should be close enough but not too close
         - Fingertips should be positioned around object
         """
-        hand_landmarks = self.hand_evaluator.get_hand_landmarks(frame)
+        # Get hand landmarks from latest_result instead of direct call
+        if self.hand_evaluator.latest_result and self.hand_evaluator.latest_result.hand_landmarks:
+            hand_landmarks = self.hand_evaluator.latest_result.hand_landmarks[0]  # Get first hand detected
+        else:
+            return False, {"error": "No hand detected"}
+            
         box = self.retrieve_bottle_box(frame)
-
-        if not hand_landmarks or not box:
-            return False, {"error": "No hand or object detected"}
+        if not box:
+            return False, {"error": "No object detected"}
 
         # Get all measurements
         center_dist = self.proximity_to_center(hand_landmarks, box, frame)
         fingertip_dists = self.proximity_to_fingertips(hand_landmarks, box)
         palm_angle = self.angle_palm_to_object(hand_landmarks, box)
         hand_openness = self.check_hand_openness(hand_landmarks)
+        angle_hand_openness = self.angle_hand_openness(hand_landmarks)
 
         # Define ideal ranges
         IDEAL_CENTER_DIST = (1, 200)
@@ -205,6 +211,7 @@ class GraspIdentifier:
             "fingertip_distances": fingertip_dists,
             "palm_angle": palm_angle,
             "hand_openness": hand_openness,
+            "angle_hand_openness": angle_hand_openness,
             "distance_check": is_distance_good,
             "fingers_check": is_fingers_positioned,
             "angle_check": is_angle_good,
@@ -226,22 +233,40 @@ if __name__ == "__main__":
     install()
     console = Console()
     identifier = GraspIdentifier()
+    
+    # Start camera and hand tracking
     identifier.hand_evaluator.start_camera()
-    while True:
-        ret, frame = identifier.hand_evaluator.cap.read()
-        if not ret:
-            break
+    
+    # Main loop using the new tracking method
+    frame_timestamp = 0
+    with identifier.hand_evaluator.HandLandmarker.create_from_options(identifier.hand_evaluator.options) as landmarker:
+        while identifier.hand_evaluator.cap.isOpened():
+            ret, frame = identifier.hand_evaluator.cap.read()
+            if not ret:
+                break
 
-        hand_landmarks = identifier.hand_evaluator.get_hand_landmarks(frame)
-        box = identifier.retrieve_bottle_box(frame)
-        if hand_landmarks:
-            can_grasp, analysis = identifier.identify_grasp(frame)
-            console.print(can_grasp, analysis)
-            identifier.draw_landmarks(frame, hand_landmarks, box)
+            # Convert frame to MediaPipe format and detect hands
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+            landmarker.detect_async(mp_image, frame_timestamp)
+            frame_timestamp += 1
 
-        cv2.imshow("Hand Tracking", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+            # Process results if available
+            if identifier.hand_evaluator.latest_result:
+                can_grasp, analysis = identifier.identify_grasp(frame)
+                console.print(can_grasp, analysis)
+                frame = identifier.hand_evaluator.draw_landmarks(frame, identifier.hand_evaluator.latest_result)
+
+            box = identifier.retrieve_bottle_box(frame)
+            if box is not None:
+                # Draw additional landmarks for grasp identification
+                identifier.draw_landmarks(frame, 
+                                       identifier.hand_evaluator.latest_result.hand_landmarks[0] if identifier.hand_evaluator.latest_result and identifier.hand_evaluator.latest_result.hand_landmarks else None,
+                                       box)
+
+            cv2.imshow("Hand Tracking", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
     identifier.hand_evaluator.cap.release()
     cv2.destroyAllWindows()
+
