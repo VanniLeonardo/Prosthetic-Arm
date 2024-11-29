@@ -30,6 +30,8 @@ class GraspPoseEvaluator:
 
     def _result_callback(self, result, output_image, timestamp_ms):
         self.latest_result = result
+        self.print_hand_openness_world(result)
+        self.print_grasp_pose(result)
 
     def start_camera(self):
         self.cap = cv2.VideoCapture(0)
@@ -76,6 +78,57 @@ class GraspPoseEvaluator:
                               FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
         return image
 
+    def print_fingertip_z(self, detection_result):
+        if detection_result.hand_world_landmarks:
+            fingertip_indices = [4, 8, 12, 16, 20]
+            finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
+            
+            print("\nFingertip Z-coordinates:")
+            for hand_landmarks in detection_result.hand_world_landmarks:
+                for name, idx in zip(finger_names, fingertip_indices):
+                    z = hand_landmarks[idx].z
+                    print(f"{name}: {z:.3f}")
+
+    def calculate_distance(self, point1, point2):
+        return ((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2 + (point1.z - point2.z) ** 2) ** 0.5
+
+    def print_grasp_pose(self, detection_result):
+        if detection_result.hand_world_landmarks:
+            for hand_landmarks in detection_result.hand_world_landmarks:
+                hand_openness = self.calculate_hand_openness_world(hand_landmarks)
+                if hand_openness < 45:
+                    print("Grasp pose: Fist")
+                elif 45 < hand_openness < 70:
+                    print("Grasp pose: Pinch")
+                elif 70 < hand_openness < 90:
+                    print("Grasp pose: Gripper")
+                elif hand_openness > 90:
+                    print("Grasp pose: Open hand")
+
+
+    def calculate_hand_openness_world(self, hand_world_landmarks):
+        # Calculate the geometric center of the hand
+        center_x = sum(landmark.x for landmark in hand_world_landmarks) / len(hand_world_landmarks)
+        center_y = sum(landmark.y for landmark in hand_world_landmarks) / len(hand_world_landmarks)
+        center_z = sum(landmark.z for landmark in hand_world_landmarks) / len(hand_world_landmarks)
+        center = landmark_pb2.Landmark(x=center_x, y=center_y, z=center_z)
+
+        # Calculate the distance between the geometric center and each fingertip in world coordinates
+        fingertip_indices = [4, 8, 12, 16, 20]
+        fingertip_landmarks = [hand_world_landmarks[idx] for idx in fingertip_indices]
+        distances = [self.calculate_distance(center, fingertip) for fingertip in fingertip_landmarks]
+
+        # Calculate the hand openness
+        hand_openness = sum(distances) / len(distances)
+        percentage_openness = min(1.0, hand_openness/0.07)*100
+        return percentage_openness
+
+    def print_hand_openness_world(self, detection_result):
+        if detection_result.hand_world_landmarks:
+            for hand_world_landmarks in detection_result.hand_world_landmarks:
+                hand_openness_world = self.calculate_hand_openness_world(hand_world_landmarks)
+                print(f"Percentage Hand openness (world): {hand_openness_world:.3f}")
+
     def track_hands(self):
         frame_timestamp = 0
         with self.HandLandmarker.create_from_options(self.options) as landmarker:
@@ -94,6 +147,7 @@ class GraspPoseEvaluator:
                 # Draw landmarks if results are available
                 if self.latest_result:
                     frame = self.draw_landmarks(frame, self.latest_result)
+                    self.print_fingertip_z(self.latest_result)
 
                 cv2.imshow("Hand Tracking", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
