@@ -25,7 +25,8 @@ class GraspPoseEvaluator:
         self.options = self.HandLandmarkerOptions(
             base_options=self.BaseOptions(model_asset_path=self.model_path),
             running_mode=self.VisionRunningMode.LIVE_STREAM,
-            result_callback=self._result_callback
+            result_callback=self._result_callback,
+            num_hands=1
         )
 
     def _result_callback(self, result, output_image, timestamp_ms):
@@ -72,8 +73,10 @@ class GraspPoseEvaluator:
                     text_x = int(min(x_coordinates) * width)
                     text_y = int(min(y_coordinates) * height) - MARGIN
 
+                    pose = self.print_grasp_pose(detection_result)
+
                     handedness = detection_result.handedness[idx]
-                    cv2.putText(image, f"{handedness[0].category_name}",
+                    cv2.putText(image, f"{pose, handedness[0].category_name}",
                               (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
                               FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
         return image
@@ -98,12 +101,16 @@ class GraspPoseEvaluator:
                 hand_openness = self.calculate_hand_openness_world(hand_landmarks)
                 if hand_openness < 45:
                     print("Grasp pose: Fist")
+                    return "Fist"
                 elif 45 < hand_openness < 70:
                     print("Grasp pose: Pinch")
+                    return "Pinch"
                 elif 70 < hand_openness < 90:
                     print("Grasp pose: Gripper")
+                    return "Gripper"
                 elif hand_openness > 90:
                     print("Grasp pose: Open hand")
+                    return "Open hand"
 
 
     def calculate_hand_openness_world(self, hand_world_landmarks):
@@ -120,7 +127,7 @@ class GraspPoseEvaluator:
 
         # Calculate the hand openness
         hand_openness = sum(distances) / len(distances)
-        percentage_openness = min(1.0, hand_openness/0.07)*100
+        percentage_openness = min(1.0, hand_openness/0.07)*100 # 0.07 HYP
         return percentage_openness
 
     def print_hand_openness_world(self, detection_result):

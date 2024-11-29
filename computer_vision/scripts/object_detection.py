@@ -106,6 +106,7 @@ class ObjectDetector:
 
         # Convert to grayscale and find edges
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(gray, self.edge_threshold, self.edge_threshold * 2)
 
         # Find contours
@@ -145,8 +146,8 @@ class ObjectDetector:
                 
         else:  # Horizontal or square object
             # Use PCA-based approach vectors
-            perpendicular_angle1 = angle + np.pi / 2
-            perpendicular_angle2 = angle - np.pi / 2
+            perpendicular_angle1 = (angle + np.pi / 2) % (2 * np.pi) - np.pi
+            perpendicular_angle2 = (angle - np.pi / 2) % (2 * np.pi) - np.pi
             
 
         approach_vectors = [
