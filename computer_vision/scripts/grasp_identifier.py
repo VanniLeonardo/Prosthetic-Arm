@@ -82,37 +82,8 @@ class GraspIdentifier:
                 distances.append(distance)
         return distances
 
-    def check_hand_openness(self, hand_landmarks):
-        openness_scores = []
-        for i in range(1, 5):
-            finger_base = np.array(
-                [
-                    hand_landmarks[4 * i + 1].x,
-                    hand_landmarks[4 * i + 1].y,
-                    hand_landmarks[4 * i + 1].z,
-                ]
-            )
-            tip = np.array(
-                [
-                    hand_landmarks[4 * i + 3].x,
-                    hand_landmarks[4 * i + 3].y,
-                    hand_landmarks[4 * i + 3].z,
-                ]
-            )
-            knuckle = np.array(
-                [
-                    hand_landmarks[4 * i + 2].x,
-                    hand_landmarks[4 * i + 2].y,
-                    hand_landmarks[4 * i + 2].z,
-                ]
-            )
-            base_to_tip_distance = self._euclidean_distance(finger_base, tip)
-            base_to_knuckle_distance = self._euclidean_distance(finger_base, knuckle)
-
-            openness_scores.append(base_to_tip_distance / base_to_knuckle_distance)
-
-        # Average openness score
-        return np.mean(openness_scores)
+    def check_hand_openness_world(self, hand_landmarks):
+        return self.hand_evaluator.calculate_hand_openness_world(hand_landmarks)
 
     def draw_landmarks(self, frame, hand_landmarks, box):
         """Draw landmarks on frame"""
@@ -179,6 +150,7 @@ class GraspIdentifier:
         # Get hand landmarks from latest_result instead of direct call
         if self.hand_evaluator.latest_result and self.hand_evaluator.latest_result.hand_landmarks:
             hand_landmarks = self.hand_evaluator.latest_result.hand_landmarks[0]  # Get first hand detected
+            hand_world_landmarks = self.hand_evaluator.latest_result.hand_world_landmarks[0]  # Get first hand world landmarks detected
         else:
             return False, {"error": "No hand detected"}
             
@@ -190,7 +162,7 @@ class GraspIdentifier:
         center_dist = self.proximity_to_center(hand_landmarks, box, frame)
         fingertip_dists = self.proximity_to_fingertips(hand_landmarks, box)
         palm_angle = self.angle_palm_to_object(hand_landmarks, box)
-        hand_openness = self.check_hand_openness(hand_landmarks)
+        hand_openness = self.check_hand_openness_world(hand_world_landmarks)
         angle_hand_openness = self.angle_hand_openness(hand_landmarks)
 
         # Define ideal ranges
@@ -269,4 +241,3 @@ if __name__ == "__main__":
 
     identifier.hand_evaluator.cap.release()
     cv2.destroyAllWindows()
-

@@ -15,9 +15,9 @@ class GraspValidator:
         self.hand_depth = 100  # hand "thickness" for depth checking
 
         # Geometric validation parameters
-        self.min_bottle_height = 100  # minimum expected bottle height
-        self.max_bottle_width = 100  # maximum expected bottle width
-        self.min_confidence = 0.7  # minimum confidence for valid detection
+        self.min_bottle_height = 80  # minimum expected bottle height
+        self.max_bottle_width = 130  # maximum expected bottle width
+        self.min_confidence = 0.6  # minimum confidence for valid detection
 
         # Load trained ML model if using hybrid approach
         self.ml_model: Optional[RandomForestClassifier] = None
@@ -48,15 +48,15 @@ class GraspValidator:
 
         # Check basic size constraints
         if height < self.min_bottle_height:
-            return False, 0.0, "Object too short for bottle"
+            return False, 0.0, "Object too short"
         if width > self.max_bottle_width:
-            return False, 0.0, "Object too wide for hand"
+            return False, 0.0, "Object too wide"
 
         # Check if object fits within hand constraints
         if width > self.max_grip_width:
-            return False, 0.0, "Object too wide for maximum grip"
+            return False, 0.0, "maximum grip"
         if width < self.min_grip_width:
-            return False, 0.0, "Object too narrow for stable grip"
+            return False, 0.0, "Object too narrow"
 
         aspect_ratio = height / width
         if aspect_ratio < 1.5:  # bottles typically have aspect ratio > 1.5
