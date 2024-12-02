@@ -4,29 +4,30 @@ import pathlib
 import os
 from mediapipe.framework.formats import landmark_pb2
 
+
 class GraspPoseEvaluator:
     def __init__(self):
         # Set up paths
         current_path = pathlib.Path(__file__).parent.parent.absolute()
         self.model_path = os.path.join(current_path, "models", "hand_landmarker.task")
-        
+
         # MediaPipe setup
         self.BaseOptions = mp.tasks.BaseOptions
         self.HandLandmarker = mp.tasks.vision.HandLandmarker
         self.HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
         self.VisionRunningMode = mp.tasks.vision.RunningMode
         self.mp_drawing = mp.solutions.drawing_utils
-        
+
         # Initialize variables
         self.cap = None
         self.latest_result = None
-        
+
         # Create options
         self.options = self.HandLandmarkerOptions(
             base_options=self.BaseOptions(model_asset_path=self.model_path),
             running_mode=self.VisionRunningMode.LIVE_STREAM,
             result_callback=self._result_callback,
-            num_hands=1
+            num_hands=1,
         )
 
     def _result_callback(self, result, output_image, timestamp_ms):
@@ -51,10 +52,14 @@ class GraspPoseEvaluator:
             for idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
                 # Convert landmarks to proto format
                 hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
-                hand_landmarks_proto.landmark.extend([
-                    landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) 
-                    for landmark in hand_landmarks
-                ])
+                hand_landmarks_proto.landmark.extend(
+                    [
+                        landmark_pb2.NormalizedLandmark(
+                            x=landmark.x, y=landmark.y, z=landmark.z
+                        )
+                        for landmark in hand_landmarks
+                    ]
+                )
 
                 # Draw landmarks
                 self.mp_drawing.draw_landmarks(
@@ -62,7 +67,7 @@ class GraspPoseEvaluator:
                     hand_landmarks_proto,
                     mp.solutions.hands.HAND_CONNECTIONS,
                     mp.solutions.drawing_styles.get_default_hand_landmarks_style(),
-                    mp.solutions.drawing_styles.get_default_hand_connections_style()
+                    mp.solutions.drawing_styles.get_default_hand_connections_style(),
                 )
 
                 # Draw handedness label
@@ -76,16 +81,23 @@ class GraspPoseEvaluator:
                     pose = self.print_grasp_pose(detection_result)
 
                     handedness = detection_result.handedness[idx]
-                    cv2.putText(image, f"{pose, handedness[0].category_name}",
-                              (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
-                              FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+                    cv2.putText(
+                        image,
+                        f"{pose, handedness[0].category_name}",
+                        (text_x, text_y),
+                        cv2.FONT_HERSHEY_DUPLEX,
+                        FONT_SIZE,
+                        HANDEDNESS_TEXT_COLOR,
+                        FONT_THICKNESS,
+                        cv2.LINE_AA,
+                    )
         return image
 
     def print_fingertip_z(self, detection_result):
         if detection_result.hand_world_landmarks:
             fingertip_indices = [4, 8, 12, 16, 20]
-            finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
-            
+            finger_names = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+
             print("\nFingertip Z-coordinates:")
             for hand_landmarks in detection_result.hand_world_landmarks:
                 for name, idx in zip(finger_names, fingertip_indices):
@@ -93,7 +105,11 @@ class GraspPoseEvaluator:
                     print(f"{name}: {z:.3f}")
 
     def calculate_distance(self, point1, point2):
-        return ((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2 + (point1.z - point2.z) ** 2) ** 0.5
+        return (
+            (point1.x - point2.x) ** 2
+            + (point1.y - point2.y) ** 2
+            + (point1.z - point2.z) ** 2
+        ) ** 0.5
 
     def print_grasp_pose(self, detection_result):
         if detection_result.hand_world_landmarks:
@@ -112,28 +128,38 @@ class GraspPoseEvaluator:
                     print("Grasp pose: Open hand")
                     return "Open hand"
 
-
     def calculate_hand_openness_world(self, hand_world_landmarks):
         # Calculate the geometric center of the hand
-        center_x = sum(landmark.x for landmark in hand_world_landmarks) / len(hand_world_landmarks)
-        center_y = sum(landmark.y for landmark in hand_world_landmarks) / len(hand_world_landmarks)
-        center_z = sum(landmark.z for landmark in hand_world_landmarks) / len(hand_world_landmarks)
+        center_x = sum(landmark.x for landmark in hand_world_landmarks) / len(
+            hand_world_landmarks
+        )
+        center_y = sum(landmark.y for landmark in hand_world_landmarks) / len(
+            hand_world_landmarks
+        )
+        center_z = sum(landmark.z for landmark in hand_world_landmarks) / len(
+            hand_world_landmarks
+        )
         center = landmark_pb2.Landmark(x=center_x, y=center_y, z=center_z)
 
         # Calculate the distance between the geometric center and each fingertip in world coordinates
         fingertip_indices = [4, 8, 12, 16, 20]
         fingertip_landmarks = [hand_world_landmarks[idx] for idx in fingertip_indices]
-        distances = [self.calculate_distance(center, fingertip) for fingertip in fingertip_landmarks]
+        distances = [
+            self.calculate_distance(center, fingertip)
+            for fingertip in fingertip_landmarks
+        ]
 
         # Calculate the hand openness
         hand_openness = sum(distances) / len(distances)
-        percentage_openness = min(1.0, hand_openness/0.07)*100 # 0.07 HYP
+        percentage_openness = min(1.0, hand_openness / 0.07) * 100  # 0.07 HYP
         return percentage_openness
 
     def print_hand_openness_world(self, detection_result):
         if detection_result.hand_world_landmarks:
             for hand_world_landmarks in detection_result.hand_world_landmarks:
-                hand_openness_world = self.calculate_hand_openness_world(hand_world_landmarks)
+                hand_openness_world = self.calculate_hand_openness_world(
+                    hand_world_landmarks
+                )
                 print(f"Percentage Hand openness (world): {hand_openness_world:.3f}")
 
     def track_hands(self):
@@ -162,6 +188,7 @@ class GraspPoseEvaluator:
 
         self.cap.release()
         cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     evaluator = GraspPoseEvaluator()

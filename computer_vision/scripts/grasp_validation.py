@@ -205,17 +205,23 @@ class GraspValidator:
                 # Compare the number of points in each half
                 left_count = len(left_half)
                 right_count = len(right_half)
-                symmetry_score = 1.0 - abs(left_count - right_count) / max(left_count, right_count, 1)
+                symmetry_score = 1.0 - abs(left_count - right_count) / max(
+                    left_count, right_count, 1
+                )
 
                 # Normalize using bounding box width to make score scale-invariant and comparable accross different contour sizes
-                bounding_box_width = max(pt[0][0] for pt in largest_contour) - min(pt[0][0] for pt in largest_contour)
+                bounding_box_width = max(pt[0][0] for pt in largest_contour) - min(
+                    pt[0][0] for pt in largest_contour
+                )
                 symmetry_score /= bounding_box_width
 
                 # Incorporate PCA for primary axis of symmetry
                 contour_points = np.array(largest_contour).reshape(-1, 2)
                 pca = cv2.PCACompute(contour_points, mean=np.array([]))
                 primary_axis = pca[1][0]
-                symmetry_score *= np.abs(primary_axis[0])  # Weight by primary axis alignment
+                symmetry_score *= np.abs(
+                    primary_axis[0]
+                )  # Weight by primary axis alignment
 
                 stability_metrics["symmetry_score"] = min(1.0, symmetry_score)
 
@@ -229,7 +235,9 @@ class GraspValidator:
             # Calculate grasp stability from approach vector consistency
             vector_confidences = [v["confidence"] for v in approach_vectors]
             if vector_confidences:
-                stability_metrics["grasp_stability"] = float(np.mean(vector_confidences))
+                stability_metrics["grasp_stability"] = float(
+                    np.mean(vector_confidences)
+                )
 
         return stability_metrics
 

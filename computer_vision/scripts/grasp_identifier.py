@@ -148,12 +148,19 @@ class GraspIdentifier:
         - Fingertips should be positioned around object
         """
         # Get hand landmarks from latest_result instead of direct call
-        if self.hand_evaluator.latest_result and self.hand_evaluator.latest_result.hand_landmarks:
-            hand_landmarks = self.hand_evaluator.latest_result.hand_landmarks[0]  # Get first hand detected
-            hand_world_landmarks = self.hand_evaluator.latest_result.hand_world_landmarks[0]  # Get first hand world landmarks detected
+        if (
+            self.hand_evaluator.latest_result
+            and self.hand_evaluator.latest_result.hand_landmarks
+        ):
+            hand_landmarks = self.hand_evaluator.latest_result.hand_landmarks[
+                0
+            ]  # Get first hand detected
+            hand_world_landmarks = (
+                self.hand_evaluator.latest_result.hand_world_landmarks[0]
+            )  # Get first hand world landmarks detected
         else:
             return False, {"error": "No hand detected"}
-            
+
         box = self.retrieve_bottle_box(frame)
         if not box:
             return False, {"error": "No object detected"}
@@ -205,13 +212,15 @@ if __name__ == "__main__":
     install()
     console = Console()
     identifier = GraspIdentifier()
-    
+
     # Start camera and hand tracking
     identifier.hand_evaluator.start_camera()
-    
+
     # Main loop using the new tracking method
     frame_timestamp = 0
-    with identifier.hand_evaluator.HandLandmarker.create_from_options(identifier.hand_evaluator.options) as landmarker:
+    with identifier.hand_evaluator.HandLandmarker.create_from_options(
+        identifier.hand_evaluator.options
+    ) as landmarker:
         while identifier.hand_evaluator.cap.isOpened():
             ret, frame = identifier.hand_evaluator.cap.read()
             if not ret:
@@ -226,14 +235,21 @@ if __name__ == "__main__":
             if identifier.hand_evaluator.latest_result:
                 can_grasp, analysis = identifier.identify_grasp(frame)
                 console.print(can_grasp, analysis)
-                frame = identifier.hand_evaluator.draw_landmarks(frame, identifier.hand_evaluator.latest_result)
+                frame = identifier.hand_evaluator.draw_landmarks(
+                    frame, identifier.hand_evaluator.latest_result
+                )
 
             box = identifier.retrieve_bottle_box(frame)
             if box is not None:
                 # Draw additional landmarks for grasp identification
-                identifier.draw_landmarks(frame, 
-                                       identifier.hand_evaluator.latest_result.hand_landmarks[0] if identifier.hand_evaluator.latest_result and identifier.hand_evaluator.latest_result.hand_landmarks else None,
-                                       box)
+                identifier.draw_landmarks(
+                    frame,
+                    identifier.hand_evaluator.latest_result.hand_landmarks[0]
+                    if identifier.hand_evaluator.latest_result
+                    and identifier.hand_evaluator.latest_result.hand_landmarks
+                    else None,
+                    box,
+                )
 
             cv2.imshow("Hand Tracking", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):

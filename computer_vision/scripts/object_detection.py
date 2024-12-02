@@ -110,7 +110,9 @@ class ObjectDetector:
         edges = cv2.Canny(gray, self.edge_threshold, self.edge_threshold * 2)
 
         # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
 
         if not contours:
             return []
@@ -124,9 +126,9 @@ class ObjectDetector:
 
         # Calculate moments of the largest contour
         M = cv2.moments(largest_contour)
-        if M['m00'] == 0:
+        if M["m00"] == 0:
             return []
-        
+
         # Calculate orientation using PCA
         pts = largest_contour.reshape(-1, 2)
         mean, eigenvectors = cv2.PCACompute(pts.astype(np.float32), mean=None)
@@ -136,31 +138,36 @@ class ObjectDetector:
 
         # Calculate aspect ratio to determine if object is more vertical or horizontal
         aspect_ratio = height / width
-        
+
         # Adjust confidence based on object orientation and centroid position
         confidence = 1.0
         if aspect_ratio > 1.5:  # Vertical object (like a bottle)
             # Prefer horizontal approach vectors
             perpendicular_angle1 = 0  # From right
             perpendicular_angle2 = np.pi  # From left
-                
+
         else:  # Horizontal or square object
             # Use PCA-based approach vectors
             perpendicular_angle1 = (angle + np.pi / 2) % (2 * np.pi) - np.pi
             perpendicular_angle2 = (angle - np.pi / 2) % (2 * np.pi) - np.pi
-            
 
         approach_vectors = [
             {
-                'angle': perpendicular_angle1,
-                'confidence': confidence,
-                'vector': (float(np.cos(perpendicular_angle1)), float(np.sin(perpendicular_angle1))),
+                "angle": perpendicular_angle1,
+                "confidence": confidence,
+                "vector": (
+                    float(np.cos(perpendicular_angle1)),
+                    float(np.sin(perpendicular_angle1)),
+                ),
             },
             {
-                'angle': perpendicular_angle2,
-                'confidence': confidence,
-                'vector': (float(np.cos(perpendicular_angle2)), float(np.sin(perpendicular_angle2))),
-            }
+                "angle": perpendicular_angle2,
+                "confidence": confidence,
+                "vector": (
+                    float(np.cos(perpendicular_angle2)),
+                    float(np.sin(perpendicular_angle2)),
+                ),
+            },
         ]
 
         return approach_vectors
