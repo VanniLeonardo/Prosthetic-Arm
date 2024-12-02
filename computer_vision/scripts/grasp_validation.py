@@ -207,7 +207,7 @@ class GraspValidator:
                 right_count = len(right_half)
                 symmetry_score = 1.0 - abs(left_count - right_count) / max(left_count, right_count, 1)
 
-                # Normalize using bounding box width
+                # Normalize using bounding box width to make score scale-invariant and comparable accross different contour sizes
                 bounding_box_width = max(pt[0][0] for pt in largest_contour) - min(pt[0][0] for pt in largest_contour)
                 symmetry_score /= bounding_box_width
 
