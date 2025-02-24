@@ -3,6 +3,8 @@ import cv2
 import pathlib
 import os
 from mediapipe.framework.formats import landmark_pb2
+from CONST import CAMERA_TYPE
+from CONST import MIRRORED_CAMERA
 
 
 class GraspPoseEvaluator:
@@ -36,7 +38,7 @@ class GraspPoseEvaluator:
         self.print_grasp_pose(result)
 
     def start_camera(self):
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(CAMERA_TYPE)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():
@@ -167,6 +169,9 @@ class GraspPoseEvaluator:
         with self.HandLandmarker.create_from_options(self.options) as landmarker:
             while self.cap.isOpened():
                 ret, frame = self.cap.read()
+
+                if MIRRORED_CAMERA:
+                    frame = cv2.flip(frame,1) # To make camera behave like a mirror
                 if not ret:
                     break
 

@@ -6,11 +6,13 @@ import time
 from typing import Tuple
 import os
 from CONST import CV_PATH
+from CONST import MIRRORED_CAMERA
+from CONST import CAMERA_TYPE
 
 
 class GraspDetectionApp:
     def __init__(self) -> None:
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(CAMERA_TYPE)
         if not self.cap.isOpened():
             raise ValueError("Could not open camera")
 
@@ -159,6 +161,10 @@ class GraspDetectionApp:
                 start_time = time.time()
 
                 ret, frame = self.cap.read()
+
+                if MIRRORED_CAMERA:
+                    frame = cv2.flip(frame,1) # To camera behave like a mirror
+                
                 if not ret:
                     print("Failed to grab frame")
                     break
