@@ -7,6 +7,10 @@ import orjson
 import json
 import numpy as np
 from EEGModels import EEGNet
+import tensorflow as ts
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
 
 s_r = 500 # Sampling Rate
 def extract_window_movements(p,s):
@@ -73,3 +77,92 @@ def create_epochs(eeg, labels, window_size=500, step=250, threshold=0.5):
     X = np.array(X_list)  # => (num_windows, C, window_size)
     y = np.array(y_list)
     return X, y
+
+def gather_all_data(participants, sessions, window_size=500, step=250, threshold=0.5):
+    """
+    Returns X_all, y_all from *all* participants and sessions.
+    Each row in X_all is one epoch (C, window_size),
+    y_all is the corresponding label (0 or 1).
+    """
+    X_list = []
+    y_list = []
+    
+    for p in participants:
+        for s in sessions:
+            print(f"Gathering data for P{p}, S{s}")
+            # 1) Extract continuous EEG
+            eeg = extract_hs(p, s)   # shape => (T, C) or (C, T) depending on your data
+            # 2) Get sample-wise labels
+            labels = assign_labels(p, s)  # shape => (T,)
+            # 3) Window into epochs
+            X, y = create_epochs(eeg, labels,
+                                 window_size=window_size,
+                                 step=step,
+                                 threshold=threshold)
+            # 4) Collect
+            X_list.append(X)
+            y_list.append(y)
+    
+    # Concatenate
+    # X_list is a list of arrays, each shape => (num_windows_ps, C, window_size)
+    X_all = np.concatenate(X_list, axis=0)  # e.g. (N_total, C, window_size)
+    y_all = np.concatenate(y_list, axis=0)  # (N_total,)
+    
+    print(f"All data shape: {X_all.shape}, labels shape: {y_all.shape}")
+    return X_all, y_all
+
+X_all, y_all = gather_all_data(
+    participants = [1,2,3,4, 5, 6, 7, 8, 9, 10, 11, 12],  
+    sessions     = [1,2, 3, 4, 5, 6, 7, 8, 9],   
+    window_size  = 500,
+    step         = 250,
+    threshold    = 0.5
+)
+
+X_train, X_val, y_train, y_val = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
+
+
+X_train = np.expand_dims(X_train, axis=-1)  # => (N, C, Samples, 1)
+X_val   = np.expand_dims(X_val,   axis=-1)
+
+# 2) One-hot encode labels
+y_train_cat = to_categorical(y_train, num_classes=2)
+y_val_cat   = to_categorical(y_val,   num_classes=2)
+
+# 3) Build EEGNet
+Chans   = X_train.shape[1]  # C
+Samples = X_train.shape[2]  # window_size
+model = EEGNet(
+    nb_classes   = 2,
+    Chans        = Chans,
+    Samples      = Samples,
+    dropoutRate  = 0.5,
+    kernLength   = 250,   # half your sampling rate if it's 500
+    F1           = 8,
+    D            = 2,
+    F2           = 16,
+    norm_rate    = 0.25,
+    dropoutType  = 'Dropout'
+)
+
+model.compile(loss='categorical_crossentropy',
+              optimizer=Adam(lr=1e-3),
+              metrics=['accuracy'])
+
+# 4) Fit
+history = model.fit(
+    X_train, y_train_cat,
+    batch_size=16,
+    epochs=20,
+    validation_data=(X_val, y_val_cat)
+)
+
+# 5) Save
+model.save("eegnet_all_subjects_all_sessions.h5")
+
+
+
+
+
+
+
