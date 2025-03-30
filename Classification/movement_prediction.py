@@ -91,9 +91,11 @@ def gather_all_data(participants, sessions, window_size=500, step=250, threshold
         for s in sessions:
             print(f"Gathering data for P{p}, S{s}")
             # 1) Extract continuous EEG
-            eeg = extract_hs(p, s)   # shape => (T, C) or (C, T) depending on your data
+            eeg = extract_hs(p, s)   # shape => (T, C) 
+            print(f"EEG shape: {eeg.shape}")
             # 2) Get sample-wise labels
             labels = assign_labels(p, s)  # shape => (T,)
+            print(f"Labels shape: {labels.shape}")
             # 3) Window into epochs
             X, y = create_epochs(eeg, labels,
                                  window_size=window_size,
@@ -111,17 +113,20 @@ def gather_all_data(participants, sessions, window_size=500, step=250, threshold
     print(f"All data shape: {X_all.shape}, labels shape: {y_all.shape}")
     return X_all, y_all
 
+# BUILDING THE MODEL
+
 X_all, y_all = gather_all_data(
-    participants = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],  
-    sessions     = [1, 2, 3, 4, 5, 6, 7, 8, 9],   
-    window_size  = 500,
-    step         = 250,
-    threshold    = 0.5
+    participants = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],  # to run the model locally you can restrict to 1..x
+    sessions     = [1, 2, 3, 4, 5, 6, 7, 8, 9], # to run the model locally you can restrict to 1..y
+    window_size  = 500, # consdider 500 time points widows (1 second)
+    step         = 250, # overlapping 50% of the window
+    threshold    = 0.5  # if 50% of the window is labeled as movement, label the whole window as movement
 )
 
+# Split into train and validation sets
 X_train, X_val, y_train, y_val = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
 
-
+# 1) Reshape for EEGNet
 X_train = np.expand_dims(X_train, axis=-1)  # => (N, C, Samples, 1)
 X_val   = np.expand_dims(X_val,   axis=-1)
 
@@ -137,7 +142,7 @@ model = EEGNet(
     Chans        = Chans,
     Samples      = Samples,
     dropoutRate  = 0.5,
-    kernLength   = 250,   # half your sampling rate if it's 500
+    kernLength   = 250,   # half of the sampling rate if it's 500
     F1           = 8,
     D            = 2,
     F2           = 16,
@@ -146,7 +151,7 @@ model = EEGNet(
 )
 
 model.compile(loss='categorical_crossentropy',
-              optimizer=Adam(lr=1e-3),
+              optimizer=Adam(learning_rate=1e-3),
               metrics=['accuracy'])
 
 # 4) Fit
@@ -158,4 +163,11 @@ history = model.fit(
 )
 
 # 5) Save
-model.save("eegnet_all_subjects_all_sessions.h5")
+model.save("movement_prediction_3_3.h5")
+
+
+
+
+
+
+
