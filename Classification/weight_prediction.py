@@ -2,10 +2,10 @@ import numpy as np
 import json
 import mne
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv2D, DepthwiseConv2D, BatchNormalization, Activation, AveragePooling2D, Dropout, Flatten, Dense
-from tensorflow.keras.optimizers import Adam
+from tensorflow.python.keras.utils import to_categorical
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.layers import Input, Conv2D, DepthwiseConv2D, BatchNormalization, Activation, AveragePooling2D, Dropout, Flatten, Dense
+from tensorflow.python.keras.optimizers import Adam
 from EEGModels import EEGNet, ShallowConvNet, DeepConvNet
 
 def pad_trials(trials):
@@ -28,7 +28,7 @@ def pad_all_trials(trials):
     max_time = max(trial.shape[1] for trial in trials)
     padded_trials = []
     for trial in trials:
-        n_experiment, n_time,  n_channels  = trial.shape
+        n_experiment, n_time, n_channels  = trial.shape
         pad_width = max_time - n_time
         if pad_width > 0:
             # Pad along the time dimension (first dimension)
@@ -49,9 +49,13 @@ def load_data_from_json(file_path):
         eeg_trial = np.array(trial["eeg"]) # shape is (n_timepoints, n_channels) (4000, 32)
         trials.append(eeg_trial) # size is 34
         weight_labels.append(trial["experimental_conditions"]["weight_id"])  
-        texture_labels.append(trial["experimental_conditions"]["surface_id"])  
-    padded_trials = pad_trials(trials)
+        texture_labels.append(trial["experimental_conditions"]["surface_id"])
+    # Now 'trials' is a list of 34 arrays
+    
+    padded_trials = pad_trials(trials)  # list of 34 arrays each with the same number of timepoints
     X = np.array(padded_trials)  # shape: (n_trials, n_channels, n_timepoints)
+    # Why is X not (trials, timepoints, channels)?
+
     y_weight = np.array(weight_labels)
     y_texture = np.array(texture_labels)
     # print the shape of the data
