@@ -1,4 +1,4 @@
-# The strategy is to use correspondance between WS and HS data. Label 1 all the correspective point in HS that
+# The strategy is to use correspondance between WS and HS data. Label 1 all the correspective points in HS that
 # correspond to the WS data, zero everywhere else. Use this label to train the model to recognize movement.
 # Data has to be windowed to enter EEGNet.
 # For more questions text me.
@@ -9,8 +9,8 @@ import numpy as np
 from EEGModels import EEGNet
 import tensorflow as ts
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.utils import to_categorical
+from tensorflow.python.keras.optimizers import Adam
+from tensorflow.python.keras.utils import to_categorical
 
 s_r = 500 # Sampling Rate
 def extract_window_movements(p,s):
@@ -20,7 +20,7 @@ def extract_window_movements(p,s):
         time_spans = []
         trial_counter = 0
         for trial in data["experiments"]:
-            start = int(trial["timestamps"]["trial_start"][0][0] * s_r) - 999 #999 was found by looking at the dataset
+            start = int(trial["timestamps"]["trial_start"][0][0] * s_r) - 999  # 999 was found by looking at the dataset
             end = int(trial["timestamps"]["trial_end"][0][0] * s_r) - 999
             time_spans.append([start,end])
         spans = np.array(time_spans)
@@ -63,7 +63,7 @@ def create_epochs(eeg, labels, window_size=500, step=250, threshold=0.5):
         window_data = eeg[start_idx:end_idx, :]  # shape => (window_size, C)
         window_labels = labels[start_idx:end_idx] # shape => (window_size,)
 
-        #average of the labels in the window
+        # average of the labels in the window
         # if the average is greater than threshold, assign label 1
         frac_movement = np.mean(window_labels)
         window_label = 1 if frac_movement >= threshold else 0
@@ -112,8 +112,8 @@ def gather_all_data(participants, sessions, window_size=500, step=250, threshold
     return X_all, y_all
 
 X_all, y_all = gather_all_data(
-    participants = [1,2,3,4, 5, 6, 7, 8, 9, 10, 11, 12],  
-    sessions     = [1,2, 3, 4, 5, 6, 7, 8, 9],   
+    participants = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],  
+    sessions     = [1, 2, 3, 4, 5, 6, 7, 8, 9],   
     window_size  = 500,
     step         = 250,
     threshold    = 0.5
@@ -159,10 +159,3 @@ history = model.fit(
 
 # 5) Save
 model.save("eegnet_all_subjects_all_sessions.h5")
-
-
-
-
-
-
-
