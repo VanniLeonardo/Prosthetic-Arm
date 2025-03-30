@@ -9,8 +9,8 @@ import numpy as np
 from EEGModels import EEGNet
 import tensorflow as ts
 from sklearn.model_selection import train_test_split
-from tensorflow.python.keras.optimizers import Adam
-from tensorflow.python.keras.utils import to_categorical
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
 
 s_r = 500 # Sampling Rate
 def extract_window_movements(p,s):

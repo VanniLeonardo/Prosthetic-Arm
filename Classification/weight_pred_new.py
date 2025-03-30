@@ -1,6 +1,6 @@
 import numpy as np
 import json
-from tensorflow.python.keras.utils import to_categorical
+from tensorflow.keras.utils import to_categorical
 from sklearn.model_selection import train_test_split
 from EEGModels import EEGNet
 
@@ -86,7 +86,12 @@ X_padded = np.expand_dims(X_padded, axis=-1)  # (N, C, T, 1)
 print(f"X_final shape (4D): {X_padded.shape}")
 
 # 4. Labels to one-hot
-y_all = to_categorical(y_weight_all, num_classes=4)
+# Get unique weights (e.g. ['330g', '660g', '990g', '1320g'])
+unique_weights = sorted(set(y_weight_all))
+weight_to_id = {w: i for i, w in enumerate(unique_weights)}
+# Map all string labels to integers
+y_weight_all_int = np.array([weight_to_id[w] for w in y_weight_all])
+y_all = to_categorical(y_weight_all_int, num_classes=4)
 
 # 5. Split
 X_train, X_val, y_train, y_val = train_test_split(X_padded, y_all, test_size=0.2, random_state=42)

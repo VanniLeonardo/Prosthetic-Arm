@@ -2,10 +2,7 @@ import numpy as np
 import json
 import mne
 from sklearn.model_selection import train_test_split
-from tensorflow.python.keras.utils import to_categorical
-from tensorflow.python.keras.models import Model
-from tensorflow.python.keras.layers import Input, Conv2D, DepthwiseConv2D, BatchNormalization, Activation, AveragePooling2D, Dropout, Flatten, Dense
-from tensorflow.python.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
 from EEGModels import EEGNet, ShallowConvNet, DeepConvNet
 
 def pad_trials(trials):
@@ -51,7 +48,7 @@ def load_data_from_json(file_path):
         weight_labels.append(trial["experimental_conditions"]["weight_id"])  
         texture_labels.append(trial["experimental_conditions"]["surface_id"])
     # Now 'trials' is a list of 34 arrays
-    
+
     padded_trials = pad_trials(trials)  # list of 34 arrays each with the same number of timepoints
     X = np.array(padded_trials)  # shape: (n_trials, n_channels, n_timepoints)
     # Why is X not (trials, timepoints, channels)?
