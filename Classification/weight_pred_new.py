@@ -2,7 +2,7 @@ import numpy as np
 import json
 from tensorflow.keras.utils import to_categorical
 from sklearn.model_selection import train_test_split
-from EEGModels import EEGNet
+from Classification.MovementPrediction.EEGModels import EEGNet
 
 # ---------------------------
 # Padding function (global)
@@ -62,8 +62,8 @@ def load_all_data(participants, sessions):
 # ---------------------------
 # Main pipeline
 # ---------------------------
-participants = range(1, 3)  # 1..12
-sessions = range(1, 2)  # 1..9
+participants = range(1, 4)  # 1..12
+sessions = range(1, 4)  # 1..9
 
 # 1. Load data (ragged)
 X_list, y_weight_list, y_texture_list = load_all_data(participants, sessions)
@@ -87,10 +87,11 @@ print(f"X_final shape (4D): {X_padded.shape}")
 
 # 4. Labels to one-hot
 # Get unique weights (e.g. ['330g', '660g', '990g', '1320g'])
-unique_weights = sorted(set(y_weight_all))
+y_weight_all=y_weight_all.flatten()
+unique_weights = sorted(set(y_weight_all.tolist()))
 weight_to_id = {w: i for i, w in enumerate(unique_weights)}
 # Map all string labels to integers
-y_weight_all_int = np.array([weight_to_id[w] for w in y_weight_all])
+y_weight_all_int = np.array([weight_to_id[w] for w in y_weight_all.tolist()])
 y_all = to_categorical(y_weight_all_int, num_classes=4)
 
 # 5. Split

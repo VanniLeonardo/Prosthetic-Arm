@@ -25,3 +25,11 @@ build/
 # System files
 .DS_Store
 Thumbs.db
+
+# Data files
+.pkl
+.npy
+/Classification/MovementPrediction/X_all.npy
+/Classification/MovementPrediction/y_all.npy
+/Classification/MovementPrediction/raw_X_all.pkl
+/Classification/MovementPrediction/raw_y_all.pkl
