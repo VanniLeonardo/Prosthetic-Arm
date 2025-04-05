@@ -7,29 +7,9 @@ import math
 
 # Default dimensions for common objects (height, width, length) in meters
 DEFAULT_DIMS = {
-    'car': np.array([1.52, 1.64, 3.85]),
-    'truck': np.array([3.07, 2.63, 11.17]),
-    'bus': np.array([3.07, 2.63, 11.17]),
-    'motorcycle': np.array([1.50, 0.90, 2.20]),
-    'bicycle': np.array([1.40, 0.70, 1.80]),
     'person': np.array([1.75, 0.60, 0.60]),
-    'dog': np.array([0.80, 0.50, 1.10]),
-    'cat': np.array([0.40, 0.30, 0.70]),
-    # Add indoor objects
-    'potted plant': np.array([0.80, 0.40, 0.40]),
-    'plant': np.array([0.80, 0.40, 0.40]),
-    'chair': np.array([0.80, 0.60, 0.60]),
-    'sofa': np.array([0.80, 0.85, 2.00]),
-    'table': np.array([0.75, 1.20, 1.20]),
-    'bed': np.array([0.60, 1.50, 2.00]),
-    'tv': np.array([0.80, 0.15, 1.20]),
-    'laptop': np.array([0.02, 0.25, 0.35]),
-    'keyboard': np.array([0.03, 0.15, 0.45]),
-    'mouse': np.array([0.03, 0.06, 0.10]),
-    'book': np.array([0.03, 0.20, 0.15]),
     'bottle': np.array([0.25, 0.10, 0.10]),
     'cup': np.array([0.10, 0.08, 0.08]),
-    'vase': np.array([0.30, 0.15, 0.15])
 }
 
 class BBox3DEstimator:
