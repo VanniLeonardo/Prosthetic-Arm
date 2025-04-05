@@ -25,7 +25,7 @@ class ObjectDetector:
         'large': 'yolov5l6u',
         'extensive': 'yolov5x6u'
     }
-    DEFAULT_BOTTLE_CLASS = [39]
+    DEFAULT_BOTTLE_CLASS = None
     TRAJECTORY_MAX_LEN = 10
     MAX_DETECTIONS = 10
     
