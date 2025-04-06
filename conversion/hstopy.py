@@ -5,7 +5,7 @@ import json
 
 
 
-file_path = "/Users/giovanninocerino/Desktop/Associations/BAINSA/EEG/grasp-and-lift-eeg-detection/P5/HS_P5_S2.mat" # Replace with your file path
+file_path = "/Users/giovanninocerino/Desktop/Associations/EEG Research/math_file/P1/HS_P1_ST.mat" # Replace with your file path
 
 # Check if the file exists before proceeding
 if not os.path.exists(file_path):
@@ -67,10 +67,10 @@ print(structured_data["ENV"]["names"])
 
 
 # Generate JSON filename based on input file
-#json_filename = osx.path.splitext(file_path)[0] + ".json"
+json_filename = os.path.splitext(file_path)[0] + ".json"
 
-# Write JSON file
-#with open(json_filename, "w") as json_file:
- #   json.dump(structured_data, json_file, indent=4)
+#Write JSON file
+with open(json_filename, "w") as json_file:
+    json.dump(structured_data, json_file, indent=4)
 
-#print(f"JSON saved: {json_filename}")
+print(f"JSON saved: {json_filename}")

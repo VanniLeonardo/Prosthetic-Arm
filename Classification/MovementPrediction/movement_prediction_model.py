@@ -208,3 +208,8 @@ plt.ylabel("Accuracy")
 plt.title("Last Fold Accuracy")
 plt.legend()
 plt.show()
+
+
+# Save the final model from the last fold in the current working directory
+model.save("EEGNet_final_model.h5")
+print("Final model saved in the current directory as EEGNet_final_model.h5")
