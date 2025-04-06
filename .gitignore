@@ -174,3 +174,5 @@ computer_vision/computer_vision_env/
 computer_vision/models/*
 computer_vision/frames/*
 .ruff_cache/
+
+app.log

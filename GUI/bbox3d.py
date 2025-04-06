@@ -658,14 +658,13 @@ class BBox3DEstimator:
                 del self.box_history[obj_id]
 
 class BirdEyeView:
-    # Z AXIS DOESNT WORK PROPERLY. TODO
     """
     XZ View visualization (top-down view)
     """
     def __init__(self, size=(400, 400), scale=30, camera_height=1.2):
         """
         Initialize the XZ View visualizer (top-down view)
-        
+       
         Args:
             size (tuple): Size of the view image (width, height)
             scale (float): Scale factor (pixels per meter)
@@ -674,14 +673,14 @@ class BirdEyeView:
         self.width, self.height = size
         self.scale = scale
         self.camera_height = camera_height
-        
+       
         # Create empty view image
         self.view_image = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        
+       
         # Set origin at the bottom center of the image
         self.origin_x = self.width // 2
         self.origin_z = self.height - 100  # Near the bottom
-    
+   
     def reset(self):
         """
         Reset the view image
@@ -689,64 +688,63 @@ class BirdEyeView:
         # Create a dark background
         self.view_image = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         self.view_image[:, :] = (20, 20, 20)  # Dark gray background
-        
+       
         # Draw grid lines
         grid_spacing = max(int(self.scale), 20)  # At least 20 pixels between grid lines
-        
+       
         # Draw horizontal grid lines (Z axis lines)
         for z in range(self.origin_z, 0, -grid_spacing):
             cv2.line(self.view_image, (0, z), (self.width, z), (50, 50, 50), 1)
-        
+       
         # Draw vertical grid lines (X axis lines)
         for x in range(0, self.width, grid_spacing):
             cv2.line(self.view_image, (x, 0), (x, self.height), (50, 50, 50), 1)
-        
+       
         # Draw coordinate system
         axis_length = min(80, self.height // 5)
-        
-        # Z-axis (upward)
-        cv2.line(self.view_image, 
-                (self.origin_x, self.origin_z), 
-                (self.origin_x, self.origin_z - axis_length), 
+       
+        cv2.line(self.view_image,
+                (self.origin_x, self.origin_z),
+                (self.origin_x, self.origin_z - axis_length),
                 (0, 200, 0), 2)  # Green for Z-axis
-        
+       
         # X-axis (rightward)
-        cv2.line(self.view_image, 
-                (self.origin_x, self.origin_z), 
-                (self.origin_x + axis_length, self.origin_z), 
+        cv2.line(self.view_image,
+                (self.origin_x, self.origin_z),
+                (self.origin_x + axis_length, self.origin_z),
                 (0, 0, 200), 2)  # Red for X-axis
-        
+       
         # Add axis labels
-        cv2.putText(self.view_image, "Z", 
-                   (self.origin_x - 15, self.origin_z - axis_length + 15), 
+        cv2.putText(self.view_image, "Z",
+                   (self.origin_x - 15, self.origin_z - axis_length + 15),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
-        
-        cv2.putText(self.view_image, "X", 
-                   (self.origin_x + axis_length - 15, self.origin_z + 20), 
+       
+        cv2.putText(self.view_image, "X",
+                   (self.origin_x + axis_length - 15, self.origin_z + 20),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 200), 1)
-        
+       
         # Draw distance markers for depth (Z-axis)
         for dist in [1, 2, 3, 4, 5]:
             z = self.origin_z - int(dist * self.scale)
-            
+           
             if z < 20:  # Skip if too close to top
                 continue
-            
+           
             # Draw tick mark
-            cv2.line(self.view_image, 
-                    (self.origin_x - 5, z), 
-                    (self.origin_x + 5, z), 
+            cv2.line(self.view_image,
+                    (self.origin_x - 5, z),
+                    (self.origin_x + 5, z),
                     (120, 120, 120), 2)
-            
+           
             # Show depth text
-            cv2.putText(self.view_image, f"{dist}m", 
-                       (self.origin_x + 10, z + 4), 
+            cv2.putText(self.view_image, f"{dist}m",
+                       (self.origin_x + 10, z + 4),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
-    
+   
     def draw_box(self, box_3d, color=None):
         """
         Draw an object on the XZ view (top-down view)
-        
+       
         Args:
             box_3d (dict): 3D bounding box parameters
             color (tuple): Color in BGR format (None for automatic color based on class)
@@ -754,42 +752,34 @@ class BirdEyeView:
         try:
             # Extract parameters
             class_name = box_3d['class_name'].lower() if isinstance(box_3d.get('class_name', ''), str) else 'unknown'
-            
-            # Get depth value (for Z-axis position)
-            depth_value = float(box_3d.get('depth_value', 0.5))
-            # Map depth value (0-1) to a range of 1-10 meters
-            depth = depth_value * 0.01
-            
-            # Get 2D box dimensions
+           
+            # z_coord is depth (distance from camera)
+            depth = box_3d.get('depth_value', 0.5) * 4.0
+
+
             if 'bbox_2d' in box_3d:
                 bbox_2d = box_3d['bbox_2d']
                 # Convert tensor values to float if needed
                 if not isinstance(bbox_2d[0], (int, float)):
                     bbox_2d = [float(x) for x in bbox_2d]
-                
+               
                 x1, y1, x2, y2 = bbox_2d
                 center_x_2d = (x1 + x2) / 2
                 center_y_2d = (y1 + y2) / 2
-                width_2d = x2 - x1
-                height_2d = y2 - y1
-                
-                # Size factor based on y-position in frame (lower in frame = larger)
-                # The y-coordinate in the image increases from top to bottom
+
                 image_height = 720  # Assume standard height if not available
                 if hasattr(self, 'frame_height'):
                     image_height = self.frame_height
-                
-                # Normalize y-position (0 at top, 1 at bottom)
-                normalized_y = center_y_2d / image_height
-                
+               
                 # Size increases as objects get lower in the frame (higher y value)
+                normalized_y = center_y_2d / image_height
                 size_factor = 0.5 + normalized_y
-                size_factor = max(0.5, min(size_factor, 2.0))
+                size_factor = max(0.5, min(size_factor * 1.5, 2.0))
             else:
                 center_x_2d = 0
                 center_y_2d = 0
                 size_factor = 1.0
-            
+           
             # Determine color based on class
             if color is None:
                 if 'bottle' in class_name:
@@ -801,103 +791,104 @@ class BirdEyeView:
             else:
                 # Ensure color is in BGR format
                 color = (color[2], color[1], color[0])
-            
+           
             # Get object ID if available
             obj_id = box_3d.get('object_id', None)
             if obj_id is not None and not isinstance(obj_id, (int, float)):
                 obj_id = int(obj_id)
-            
+           
             # Calculate position in XZ view
             # X position based on horizontal position in image
             image_width = self.width  # Use view width if frame width not available
             if hasattr(self, 'frame_width'):
                 image_width = self.frame_width
-                
-            # Calculate X position - map from image x-coordinate to view x-coordinate
-            rel_x = center_x_2d / image_width - 0.5  # -0.5 to 0.5
-            view_x = self.origin_x + int(rel_x * self.width * 0.8)  # Scale to 80% of view width
-            
-            # Calculate Z position based on depth
-            view_z = self.origin_z - int(depth * self.scale * 1.6) + 100
-            
-            # Ensure the object stays within the visible area
+           
+            # Convert 3D world coordinates to view coordinates
+            rel_x = center_x_2d / image_width - 0.5 
+            view_x = self.origin_x + int(rel_x * self.width * 0.8)
+
+            view_z = int(depth * self.scale)
+           
+            # Size estimation based on distance and object type
+            base_size = 8  # Base size in pixels
+           
+            # Ensure coordinates stay within view bounds
             view_x = max(20, min(view_x, self.width - 20))
-            # view_z = max(20, min(view_z, self.origin_z - 10))
-            
-            # Draw object based on type, with size based on y-position
+            view_z = max(20, min(view_z, self.height - 20))
+           
+            # Draw object based on type
             if 'person' in class_name:
                 # Draw person as a circle
                 radius = int(5 * size_factor)
                 cv2.circle(self.view_image, (view_x, view_z), radius, color, -1)
-                
+               
             elif 'car' in class_name or 'vehicle' in class_name or 'truck' in class_name or 'bus' in class_name:
                 # Draw vehicle as a rectangle
                 rect_width = int(12 * size_factor)
                 rect_length = int(18 * size_factor)
-                
+               
                 if 'truck' in class_name or 'bus' in class_name:
                     rect_length = int(24 * size_factor)  # Longer for trucks/buses
-                
+               
                 # Draw vehicle body
                 cv2.rectangle(self.view_image,
                              (view_x - rect_width//2, view_z - rect_length//2),
                              (view_x + rect_width//2, view_z + rect_length//2),
                              color, -1)
-                
+               
             elif 'plant' in class_name or 'potted plant' in class_name:
                 # Draw plant as a circle
-                radius = int(8 * size_factor)
+                radius = int(base_size * size_factor)
                 cv2.circle(self.view_image, (view_x, view_z), radius, color, -1)
-                
+               
             else:
-                # Default: draw a square for other objects
-                size = int(8 * size_factor)
+                size = int(base_size * size_factor)
                 cv2.rectangle(self.view_image,
                              (view_x - size, view_z - size),
                              (view_x + size, view_z + size),
                              color, -1)
-            
+           
             # Draw object ID if available
             if obj_id is not None:
-                cv2.putText(self.view_image, f"{obj_id}", 
-                           (view_x - 5, view_z - 5), 
+                cv2.putText(self.view_image, f"{obj_id}",
+                           (view_x - 5, view_z - 5),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-            
+           
             # Draw depth line from origin to object
-            cv2.line(self.view_image, 
+            cv2.line(self.view_image,
                     (self.origin_x, self.origin_z),
                     (view_x, view_z),
                     (70, 70, 70), 1)
-                    
-            # Optionally, add y-position indicator (text showing height)
+            
             y_indicator = f"y:{int(normalized_y*100)}%"
             cv2.putText(self.view_image, y_indicator, 
                        (view_x - 15, view_z + 15), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, (150, 150, 150), 1)
-        
+                   
+       
         except Exception as e:
             print(f"Error drawing box in XZ view: {e}")
-    
+   
     def get_image(self):
         """
         Get the view image
-        
+       
         Returns:
             numpy.ndarray: XZ view image
         """
         return self.view_image.copy()
-    
+   
     def set_frame_dimensions(self, width, height):
         """
         Set the dimensions of the input frame for better coordinate mapping
-        
+       
         Args:
             width (int): Width of the input frame
             height (int): Height of the input frame
         """
         self.frame_width = width
         self.frame_height = height
-    
+
 class XYView:
     # THIS IS THE XY PLANE SO NOT VIEW FROM TOP. Y AXIS SHOULD BE X AXIS (BASED ON DEPTH) AND LARGENESS OF THE BOX SHOULD BE DETERMINED BY Y. COULD RENAME THIS (XY view or smth like that) AND RECREATE BirdEyeView CLASS
     """

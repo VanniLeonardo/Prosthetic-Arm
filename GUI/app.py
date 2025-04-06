@@ -146,7 +146,6 @@ def setup_video_source(source: Any) -> Tuple[cv2.VideoCapture, int, int, int]:
 
     return cap, width, height, fps
 
-
 def process_detections(detections: List, depth_map: np.ndarray,
                       depth_estimator: DepthEstimator, detector: ObjectDetector,
                       segmentation_results: Optional[List] = None) -> Tuple[List[Dict], List]:
@@ -434,7 +433,7 @@ def main():
     """Main function to run the computer vision pipeline."""
     # --- Configuration ---
     config = {
-        'source': "0",                  # Default camera index or video file path
+        'source': "1",                  # Default camera index or video file path
         'output_path': None,            # Output video path, e.g., "output.mp4"
         'yolo_model_size': "small",     # YOLO: 'nano', 'small', 'medium', 'large', 'extensive'
         'depth_model_size': "small",    # Depth: 'small', 'base', 'large'
@@ -446,8 +445,8 @@ def main():
         'enable_tracking': True,        # Enable object tracking (YOLO)
         'enable_bev': True,             # Enable bird's eye view (XYView)
         # 'enable_pseudo_3d': True,     # This is handled by draw_box_3d now, maybe remove config?
-        'enable_segmentation': True,   # Enable segmentation (SAM)
-        'enable_hand_landmarks': True, # <<<<<<------ Enable/disable hand landmarks
+        'enable_segmentation': False,   # Enable segmentation (SAM)
+        'enable_hand_landmarks': False, # <<<<<<------ Enable/disable hand landmarks
         'hand_model_path': "hand_landmarker.task", # <<<<---- !! IMPORTANT: SET CORRECT PATH !!
         'num_hands': 2,                 # Max hands for MediaPipe
         'min_hand_detection_confidence': 0.5,
@@ -470,7 +469,7 @@ def main():
 
         bev = None
         if config['enable_bev']:
-            bev = XYView(scale=50, size=(300, 400))
+            bev = BirdEyeView(scale=50, size=(300, 400)) # Change here to XYView if needed
 
         cap, width, height, fps = setup_video_source(config['source'])
         logger.info(f"Video source configured: {width}x{height} @ {fps}fps")
