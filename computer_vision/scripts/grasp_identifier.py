@@ -5,6 +5,7 @@ from hand_landmarks import GraspPoseEvaluator
 from object_detection import ObjectDetector
 import mediapipe as mp
 
+from CONST import MIRRORED_CAMERA
 
 class GraspIdentifier:
     def __init__(self):
@@ -223,6 +224,10 @@ if __name__ == "__main__":
     ) as landmarker:
         while identifier.hand_evaluator.cap.isOpened():
             ret, frame = identifier.hand_evaluator.cap.read()
+            
+            if MIRRORED_CAMERA:
+                frame = cv2.flip(frame,1) # To make camera behave like a mirror
+
             if not ret:
                 break
 
