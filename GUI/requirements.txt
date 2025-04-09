@@ -1,0 +1,26 @@
+websockets
+PySide6
+ultralytics
+mediapipe
+filterpy
+transformers
+opencv-python-headless # Or opencv-python if full package needed
+numpy
+# ///////
+# action-msgs==2.0.2
+# action-tutorials-interfaces==0.33.5
+# action-tutorials-py==0.33.5
+# actionlib-msgs==5.3.5
+# ament-cmake-test==2.5.3
+# ament-copyright==0.17.1
+# ament-cppcheck==0.17.1
+# ament-cpplint==0.17.1
+# ament-flake8==0.17.1
+# ament-index-python==1.8.1
+# ament-lint==0.17.1
+# ament-lint-cmake==0.17.1
+# ament-package==0.16.3
+# ament-pep257==0.17.1
+# ament-uncrustify==0.17.1
+# ament-xmllint==0.17.1
+# angles==1.16.0
