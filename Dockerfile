@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 ENV VENV_PATH=/app/venv
 
-# Update, install tzdata, set timezone non-interactively, then install other packages
+# TODO CLEAN THESE UP NOT ALL NEEDED
 RUN apt-get update && \
     apt-get install -y --no-install-recommends tzdata && \
     ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
@@ -27,36 +27,26 @@ RUN apt-get update && \
     libxkbcommon-x11-dev \
     libxcb-cursor0 \
     libxcb-xinerama0 \
-    libgtk2.0-dev\
-    pkg-config\
-    # Clean up apt caches
+    libgtk2.0-dev \
+    pkg-config \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a virtual environment
 RUN python3 -m venv $VENV_PATH
 
-# Activate the virtual environment and upgrade pip
 RUN $VENV_PATH/bin/pip install --no-cache-dir --upgrade pip
 
-# Copy the requirements file first to leverage Docker cache
 COPY GUI/requirements.txt /app/
-COPY hand_landmarker.task /app/
-COPY GUI/constraints.txt /app/
 
-# Install Python packages into the virtual environment
-RUN $VENV_PATH/bin/pip install --no-cache-dir -r /app/requirements.txt -c /app/constraints.txt
+RUN $VENV_PATH/bin/pip install --no-cache-dir -r /app/requirements.txt
 RUN $VENV_PATH/bin/pip install --no-cache-dir websockets 
 
-# Copy the only the /GUI folder
+COPY hand_landmarker.task /app/
+COPY yolov5s6u.pt /app/
+COPY sam2.1_b.pt /app/
 COPY /GUI /app/GUI
 
 # Expose the WebSocket port the server will listen on
 EXPOSE 8765
 
-COPY yolov5s6u.pt /app/
-COPY sam2.1_b.pt /app/
-
 CMD ["bash", "-c", "source /app/venv/bin/activate && python /app/GUI/pipeline_server.py"]
-
-# FROM hdgigante/python-opencv:4.11.0-ubuntu

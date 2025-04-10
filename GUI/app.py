@@ -121,30 +121,61 @@ def initialize_models(config: Dict[str, Any]) -> Tuple[
 
 def setup_video_source(source: Any) -> Tuple[cv2.VideoCapture, int, int, int]:
     """
+    Setup and validate video source (camera or file).
+    
     Args:
         source: Video source (camera index or file path)
 
     Returns:
         Tuple of (VideoCapture object, width, height, fps)
     """
-    if isinstance(source, str) and source.isdigit():
-        source = int(source)
-
-    cap = cv2.VideoCapture(source)
-    if not cap.isOpened():
-        logger.error(f"Error opening video source: {source}")
-        raise IOError(f"Could not open video source: {source}")
-
-    logger.info(f"Opened video source: {source}")
-
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-
-    # Set frame dimensions for BBox3DEstimator if needed (optional)
-    # bbox3d_estimator.set_frame_dimensions(width, height) # If we uncomment this, pass bbox3d_estimator here
-
-    return cap, width, height, fps
+    try:
+        # Convert string numbers to integers for camera indices
+        if isinstance(source, str):
+            if source.isdigit():
+                source = int(source)
+                logger.info(f"Converting string camera index '{source}' to integer")
+            elif not os.path.exists(source):
+                logger.error(f"Video file not found: {source}")
+                raise FileNotFoundError(f"Video file not found: {source}")
+        
+        # Attempt to open the video source
+        cap = cv2.VideoCapture(source)
+        
+        # Validate that the video source opened successfully
+        if not cap.isOpened():
+            if isinstance(source, int):
+                err_msg = f"Could not open camera at index {source}. Check if the camera is connected and not in use by another application."
+                logger.error(err_msg)
+                raise IOError(err_msg)
+            else:
+                err_msg = f"Could not open video source: {source}. File may be corrupt or use an unsupported codec."
+                logger.error(err_msg)
+                raise IOError(err_msg)
+        
+        # Get video properties
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        
+        # Validate reasonable frame dimensions
+        if width <= 0 or height <= 0:
+            err_msg = f"Invalid video dimensions: {width}x{height}. Source may not be providing proper frames."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
+            
+        # Use a reasonable default FPS if not provided by source (common with webcams)
+        if fps <= 0:
+            logger.warning(f"Video source returned invalid FPS: {fps}, using default of 30 FPS")
+            fps = 30
+        
+        logger.info(f"Successfully opened video source: {source} ({width}x{height} @ {fps}fps)")
+        return cap, width, height, fps
+        
+    except Exception as e:
+        # Catch any other exceptions and provide a helpful error message
+        logger.error(f"Failed to setup video source '{source}': {str(e)}", exc_info=True)
+        raise
 
 
 def process_detections(detections: List, depth_map: np.ndarray,

@@ -1,4 +1,3 @@
-# --- START OF MODIFIED FILE pipeline_server.py ---
 import asyncio
 import websockets
 import json
@@ -9,8 +8,7 @@ import traceback
 import logging
 import time
 import threading
-# from queue import Queue, Empty # Keep this if you need Empty
-import queue # <--- Import the queue module
+import queue
 
 from app import HAND_LANDMARKS_AVAILABLE
 
@@ -35,11 +33,10 @@ pipeline_thread = None
 stop_event = threading.Event()
 current_config = None
 clients = set()
-# Use queue.Queue for instantiation if you imported queue directly
 result_queue = queue.Queue(maxsize=100)
 incoming_frame_queue = queue.Queue(maxsize=10)
 
-# --- Frame Encoding/Decoding --- (Moved decoding to server)
+# --- Frame Encoding/Decoding ---
 def numpy_to_base64_jpg(frame, quality=70):
     if frame is None: return None
     ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
@@ -56,7 +53,7 @@ def base64_jpg_to_numpy(base64_string):
     except Exception: return None
 
 
-# --- Pipeline Runner Thread (Modified Input) ---
+# --- Pipeline Runner Thread  ---
 def pipeline_runner(config, stop_flag, results_q, frames_q):
     """Processes frames received from the incoming_frame_queue."""
     global current_config
@@ -76,10 +73,6 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
         if config.get('enable_bev', False):
             bev = XYView(scale=50, size=(300, 400))
 
-        # --- No Video Capture Here ---
-        # logger.info(f"Opening video source: {config['source']}...") # Removed
-        # cap, width, height, fps = setup_video_source(config['source']) # Removed
-
         frame_count = 0
         start_time = time.time()
         fps_display = "FPS: --"
@@ -87,33 +80,32 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
         results_q.put({'type': 'log', 'data': 'Pipeline ready. Waiting for frames...'})
         results_q.put({'type': 'status', 'data': 'ready_for_frame'}) # Signal client
 
-        # --- Main Loop (Processes Queued Frames) ---
+        # --- Main Loop ---
         while not stop_flag.is_set():
             try:
                 # Get frame from the queue shared with the websocket handler
                 frame_data = frames_q.get(timeout=0.5) # Wait max 0.5 sec
                 if frame_data is None: # Check for potential sentinel value
                      continue
-            except Empty:
+            except queue.Empty:
                 # No frame received, check stop flag and continue waiting
                 if stop_flag.is_set(): break
-                continue # Keep waiting
+                continue
 
             # --- Frame received, process it ---
             original_frame = frame_data
-            if frame_count == 0: # First frame, update dimensions if needed
+            if frame_count == 0:
                  h_frame, w_frame, _ = original_frame.shape
                  if h_frame != height or w_frame != width:
                       logger.info(f"Received frame dimensions: {w_frame}x{h_frame}")
                       width, height = w_frame, h_frame
                       # Update components needing dimensions
-                      if bev and hasattr(bev, 'set_frame_dimensions'): bev.set_frame_dimensions(width, height)
                       if bbox3d_estimator and hasattr(bbox3d_estimator, 'set_frame_dimensions'): bbox3d_estimator.set_frame_dimensions(width, height)
 
 
             loop_start_t = time.time()
 
-            # --- Run Pipeline Steps (Same as before, using received 'original_frame') ---
+            # --- Run Pipeline Steps ---
 
             # 1. Detection
             detections = []; detection_annotated_frame = original_frame.copy()
@@ -184,23 +176,21 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
         results_q.put({'type': 'status', 'data': 'finished'})
 
 
-# --- WebSocket Handling (Modified handle_client) ---
+# --- WebSocket Handling ---
 async def send_results(websocket):
-    # (This function likely uses result_queue.get_nowait() and should catch queue.Empty)
     while True:
         try:
-            # Use queue.Empty here
             result = result_queue.get_nowait()
             await websocket.send(json.dumps(result))
             result_queue.task_done()
             if result.get("type") == "status" and result.get("data") == "finished": pass
-        except queue.Empty: # <--- Use queue.Empty
+        except queue.Empty:
              await asyncio.sleep(0.01)
         except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError): logger.info("Client disconnected while sending."); break
         except Exception as e: logger.error(f"Error sending result: {e}"); await asyncio.sleep(0.1)
 
 
-async def handle_client(websocket): # Keep path argument
+async def handle_client(websocket):
     global pipeline_thread, stop_event, current_config, clients, incoming_frame_queue
     clients.add(websocket)
     sender_task = asyncio.create_task(send_results(websocket))
@@ -213,7 +203,6 @@ async def handle_client(websocket): # Keep path argument
                 command = data.get('command')
 
                 if command == 'start' and data.get('config'):
-                    # ... (start logic - clear queues using queue.Empty) ...
                     config = data['config']
                     if pipeline_thread and pipeline_thread.is_alive(): logger.warning("Pipeline running. Stop first."); await websocket.send(json.dumps({'type': 'log', 'data': 'Pipeline running. Stop first.'}))
                     else:
@@ -221,17 +210,16 @@ async def handle_client(websocket): # Keep path argument
                         stop_event.clear()
                         while not result_queue.empty():
                              try: result_queue.get_nowait(); result_queue.task_done()
-                             except queue.Empty: break # <--- Use queue.Empty
+                             except queue.Empty: break
                         while not incoming_frame_queue.empty():
                              try: incoming_frame_queue.get_nowait(); incoming_frame_queue.task_done()
-                             except queue.Empty: break # <--- Use queue.Empty
+                             except queue.Empty: break
                         pipeline_thread = threading.Thread(target=pipeline_runner, args=(config, stop_event, result_queue, incoming_frame_queue), daemon=True)
                         pipeline_thread.start()
                         await websocket.send(json.dumps({'type': 'log', 'data': 'Pipeline start initiated.'}))
 
 
                 elif command == 'stop':
-                    # ... (stop logic) ...
                     logger.info("Received stop command.")
                     if pipeline_thread and pipeline_thread.is_alive(): stop_event.set(); await websocket.send(json.dumps({'type': 'log', 'data': 'Pipeline stop initiated.'})); await websocket.send(json.dumps({'type': 'status', 'data': 'pipeline_stopped'}))
                     else: await websocket.send(json.dumps({'type': 'log', 'data': 'Pipeline not running.'}))
@@ -243,7 +231,7 @@ async def handle_client(websocket): # Keep path argument
                          if frame is not None:
                              try:
                                  incoming_frame_queue.put_nowait(frame)
-                             except queue.Full: # <--- CORRECTED EXCEPTION
+                             except queue.Full:
                                  logger.warning("Incoming frame queue full. Dropping frame.")
                                  # await websocket.send(json.dumps({'type': 'status', 'data': 'server_busy'})) # Optional feedback
                          else: logger.warning("Failed to decode incoming frame.")
@@ -258,7 +246,6 @@ async def handle_client(websocket): # Keep path argument
     except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError): logger.info(f"Client disconnected: {websocket.remote_address}")
     except Exception as e: logger.error(f"Client handler error: {e}\n{traceback.format_exc()}")
     finally:
-        # ... (cleanup logic - ensure queue.Empty is used if clearing queues here) ...
         clients.remove(websocket)
         sender_task.cancel()
         if not clients and pipeline_thread and pipeline_thread.is_alive(): logger.info("Last client disconnected. Stopping pipeline."); stop_event.set()
@@ -270,7 +257,6 @@ async def handle_client(websocket): # Keep path argument
 
 # --- Main Server Function ---
 async def main():
-    # (Same as before)
     host = "0.0.0.0"; port = 8765
     logger.info(f"Starting WebSocket server on ws://{host}:{port}")
     if not PIPELINE_AVAILABLE: logger.critical("Pipeline components failed! Server may not work.")
@@ -278,9 +264,6 @@ async def main():
         await asyncio.Future() # Run forever
 
 if __name__ == "__main__":
-    # (Same as before)
     try: asyncio.run(main())
     except KeyboardInterrupt: logger.info("Server stopped.")
     except Exception as e: logger.critical(f"Server failed: {e}")
-
-# --- END OF MODIFIED FILE pipeline_server.py ---
