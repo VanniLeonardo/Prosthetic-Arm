@@ -2,7 +2,7 @@ import numpy as np
 import json
 from tensorflow.keras.utils import to_categorical
 from sklearn.model_selection import train_test_split
-from Classification.MovementPrediction.EEGModels import EEGNet
+from Classification.PhasesClassification.EEGModels import EEGNet
 
 # ---------------------------
 # Padding function (global)

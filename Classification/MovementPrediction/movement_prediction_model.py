@@ -3,7 +3,7 @@ import numpy as np
 import orjson
 import json
 import pickle
-from EEGModels import EEGNet
+from Classification.PhasesClassification.EEGModels import EEGNet
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
 from sklearn.model_selection import StratifiedKFold

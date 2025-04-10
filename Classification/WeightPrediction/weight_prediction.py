@@ -3,7 +3,7 @@ import json
 import mne
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
-from Classification.MovementPrediction.EEGModels import EEGNet, ShallowConvNet, DeepConvNet
+from Classification.PhasesClassification.EEGModels import EEGNet, ShallowConvNet, DeepConvNet
 
 def pad_trials(trials):
     # Determine the maximum number of time points across all trials
