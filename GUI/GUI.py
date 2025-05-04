@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     'sam_model_name': "sam2.1_b.pt", 'device': 'cuda',
     'conf_threshold': 0.5, 'iou_threshold': 0.45, 'classes': [39],
     'enable_tracking': True, 'enable_bev': True, 'enable_segmentation': False,
-    'enable_hand_landmarks': True, 'hand_model_path': "hand_landmarker.task",
+    'enable_hand_landmarks': True, 'hand_model_path': "GUI/models/hand_landmarker.task",
     'num_hands': 2, 'min_hand_detection_confidence': 0.5,
     'min_hand_presence_confidence': 0.5, 'min_tracking_confidence': 0.5,
 }

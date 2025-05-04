@@ -11,7 +11,7 @@ class GraspPoseEvaluator:
     def __init__(self):
         # Set up paths
         current_path = pathlib.Path(__file__).parent.parent.absolute()
-        self.model_path = os.path.join(current_path, "models", "hand_landmarker.task")
+        self.model_path = os.path.join(current_path, 'models', 'hand_landmarker.task')
 
         # MediaPipe setup
         self.BaseOptions = mp.tasks.BaseOptions
@@ -42,7 +42,7 @@ class GraspPoseEvaluator:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if not self.cap.isOpened():
-            raise ValueError("Could not open camera")
+            raise ValueError('Could not open camera')
 
     def draw_landmarks(self, image, detection_result):
         FONT_SIZE = 1
@@ -85,7 +85,7 @@ class GraspPoseEvaluator:
                     handedness = 'Right' if detection_result.handedness[idx] == 'Right' else 'Left'
                     cv2.putText(
                         image,
-                        f"{pose, handedness}",
+                        f'{pose, handedness}',
                         (text_x, text_y),
                         cv2.FONT_HERSHEY_DUPLEX,
                         FONT_SIZE,
@@ -98,13 +98,13 @@ class GraspPoseEvaluator:
     def print_fingertip_z(self, detection_result):
         if detection_result.hand_world_landmarks:
             fingertip_indices = [4, 8, 12, 16, 20]
-            finger_names = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+            finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
 
-            print("\nFingertip Z-coordinates:")
+            print('\nFingertip Z-coordinates:')
             for hand_landmarks in detection_result.hand_world_landmarks:
                 for name, idx in zip(finger_names, fingertip_indices):
                     z = hand_landmarks[idx].z
-                    print(f"{name}: {z:.3f}")
+                    print(f'{name}: {z:.3f}')
 
     def calculate_distance(self, point1, point2):
         return (
@@ -118,17 +118,17 @@ class GraspPoseEvaluator:
             for hand_landmarks in detection_result.hand_world_landmarks:
                 hand_openness = self.calculate_hand_openness_world(hand_landmarks)
                 if hand_openness < 45:
-                    print("Grasp pose: Fist")
-                    return "Fist"
+                    print('Grasp pose: Fist')
+                    return 'Fist'
                 elif 45 < hand_openness < 70:
-                    print("Grasp pose: Pinch")
-                    return "Pinch"
+                    print('Grasp pose: Pinch')
+                    return 'Pinch'
                 elif 70 < hand_openness < 90:
-                    print("Grasp pose: Gripper")
-                    return "Gripper"
+                    print('Grasp pose: Gripper')
+                    return 'Gripper'
                 elif hand_openness > 90:
-                    print("Grasp pose: Open hand")
-                    return "Open hand"
+                    print('Grasp pose: Open hand')
+                    return 'Open hand'
 
     def calculate_hand_openness_world(self, hand_world_landmarks):
         # Calculate the geometric center of the hand
@@ -162,7 +162,7 @@ class GraspPoseEvaluator:
                 hand_openness_world = self.calculate_hand_openness_world(
                     hand_world_landmarks
                 )
-                print(f"Percentage Hand openness (world): {hand_openness_world:.3f}")
+                print(f'Percentage Hand openness (world): {hand_openness_world:.3f}')
 
     def track_hands(self):
         frame_timestamp = 0
@@ -171,7 +171,7 @@ class GraspPoseEvaluator:
                 ret, frame = self.cap.read()
 
                 if MIRRORED_CAMERA:
-                    frame = cv2.flip(frame,1) # To make camera behave like a mirror
+                    frame = cv2.flip(frame, 1)  # To make camera behave like a mirror
                 if not ret:
                     break
 
@@ -187,15 +187,15 @@ class GraspPoseEvaluator:
                     frame = self.draw_landmarks(frame, self.latest_result)
                     self.print_fingertip_z(self.latest_result)
 
-                cv2.imshow("Hand Tracking", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                cv2.imshow('Hand Tracking', frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
 
         self.cap.release()
         cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     evaluator = GraspPoseEvaluator()
     evaluator.start_camera()
     evaluator.track_hands()

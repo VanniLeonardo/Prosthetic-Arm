@@ -8,12 +8,13 @@ from typing import Optional, Union, Dict, Any, Tuple, cast
 from functools import lru_cache
 import logging
 
-### For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
+# For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
 
-#TODO: handle other models, 
+# TODO: handle other models
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("DepthEstimator")
+logger = logging.getLogger('DepthEstimator')
+
 
 class DepthEstimator:
     # Class-level model cache (implemented since it may be useful for further developments)
@@ -36,7 +37,7 @@ class DepthEstimator:
         else:
             self.pipeline_device = self.device
             
-        logger.info(f"Using device: {self.device} with pipeline device: {self.pipeline_device}")
+        logger.info(f'Using device: {self.device} with pipeline device: {self.pipeline_device}')
         
         size_map = {
             'DepthAnythingv2': {
@@ -50,7 +51,7 @@ class DepthEstimator:
         if name in size_map:
             model_name = size_map[name].get(model_size_lower, size_map[name]['small'])
             if model_size_lower not in size_map[name]:
-                logger.warning(f"Unknown model size '{model_size}', defaulting to 'small'")
+                logger.warning(f'Unknown model size \'{model_size}\', defaulting to \'small\'')
         else:
             model_name = name
             
@@ -71,10 +72,10 @@ class DepthEstimator:
             The loaded pipeline or None if loading failed
         """
         try:
-            logger.info(f"Loading model: {model_name} on device {device}")
+            logger.info(f'Loading model: {model_name} on device {device}')
             return pipeline('depth-estimation', model=model_name, device=device)
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
+            logger.error(f'Error loading model: {e}')
             return None
 
     def estimate_depth(self, image: np.ndarray) -> Optional[np.ndarray]:
@@ -86,11 +87,11 @@ class DepthEstimator:
             Normalized depth map (0-255) or None if estimation failed
         """
         if self.pipeline is None:
-            logger.error("Model pipeline not initialized")
+            logger.error('Model pipeline not initialized')
             return None
             
         if image is None or image.size == 0:
-            logger.error("Invalid input image")
+            logger.error('Invalid input image')
             return None
 
         with torch.no_grad():
@@ -111,7 +112,7 @@ class DepthEstimator:
                 return normalized_depth
                 
             except Exception as e:
-                logger.error(f"Error estimating depth: {e}")
+                logger.error(f'Error estimating depth: {e}')
                 return None
     
     def colorize_depth(self, depth: np.ndarray, cmap: int = cv2.COLORMAP_INFERNO) -> Optional[np.ndarray]:
@@ -126,7 +127,7 @@ class DepthEstimator:
             Colorized depth map or None if input was invalid
         """
         if depth is None or depth.size == 0:
-            logger.warning("Cannot colorize: empty or None depth map")
+            logger.warning('Cannot colorize: empty or None depth map')
             return None
         return cv2.applyColorMap(depth, cmap)
     
@@ -143,11 +144,11 @@ class DepthEstimator:
             Depth value at the specified point or None if coordinates are invalid
         """
         if depth is None or depth.size == 0:
-            logger.warning("Invalid depth map provided")
+            logger.warning('Invalid depth map provided')
             return None
             
         if not (0 <= x < depth.shape[1] and 0 <= y < depth.shape[0]):
-            logger.warning(f"Coordinates ({x}, {y}) out of bounds for depth map of shape {depth.shape}")
+            logger.warning(f'Coordinates ({x}, {y}) out of bounds for depth map of shape {depth.shape}')
             return None
             
         return float(depth[y, x])
@@ -164,7 +165,7 @@ class DepthEstimator:
             Median depth value in the region or None if region is invalid
         """
         if depth is None or depth.size == 0:
-            logger.warning("Invalid depth map provided")
+            logger.warning('Invalid depth map provided')
             return None
         
         x1, y1, x2, y2 = [int(val) for val in bbox]
@@ -172,7 +173,8 @@ class DepthEstimator:
         x2, y2 = min(depth.shape[1], x2), min(depth.shape[0], y2)
         
         if x1 >= x2 or y1 >= y2:
-            logger.warning(f"Invalid bounding box: {bbox} (after clipping: {(x1, y1, x2, y2)})")
+            logger.warning(f'Invalid bounding box: {bbox} '
+                           f'(after clipping: {(x1, y1, x2, y2)})')
             return None
             
         region = depth[y1:y2, x1:x2]
@@ -190,24 +192,25 @@ class DepthEstimator:
             Median depth value in the masked region or None if inputs are invalid
         """
         if depth is None or mask is None:
-            logger.warning("Invalid inputs: depth or mask is None")
+            logger.warning('Invalid inputs: depth or mask is None')
             return None
             
         if depth.size == 0 or mask.size == 0:
-            logger.warning("Empty depth map or mask")
+            logger.warning('Empty depth map or mask')
             return None
             
         if depth.shape[:2] != mask.shape[:2]:
-            logger.warning(f"Shape mismatch: depth {depth.shape[:2]} vs mask {mask.shape[:2]}")
+            logger.warning(f'Shape mismatch: depth {depth.shape[:2]} '
+                           f'vs mask {mask.shape[:2]}')
             return None
         
         try:
             roi_mask = mask.astype(bool)
             roi_values = depth[roi_mask]
             if roi_values.size == 0:
-                logger.warning("No pixels in ROI")
+                logger.warning('No pixels in ROI')
                 return None
             return float(np.median(roi_values))
         except Exception as e:
-            logger.error(f"Error getting depth in ROI: {e}")
+            logger.error(f'Error getting depth in ROI: {e}')
             return None

@@ -9,19 +9,20 @@ from typing import List, Dict, Union, Optional, Tuple, Any
 import time
 import logging
 
-### For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
+# For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
 
-#TODO: handle other models, 
+# TODO: handle other models,
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 class SegmentationModel:
 
-    def __init__(self, model_name: str = "sam2.1_s.pt", device: Optional[str] = None) -> None:
+    def __init__(self, model_name: str = 'sam2.1_s.pt', device: Optional[str] = None) -> None:
         """
         Args:
-            model_name (str): Name of the SAM model file to load. Defaults to "sam2.1_s.pt".
+            model_name (str): Name of the SAM model file to load. Defaults to 'sam2.1_s.pt'.
             device (str, optional): Device to run the model on. If None, selects automatically.
         
         Raises:
@@ -30,15 +31,15 @@ class SegmentationModel:
         self.device = device or ('cuda' if torch.cuda.is_available() else 
                                 'mps' if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() else 
                                 'cpu')
-        logger.info(f"Using device: {self.device} for segmentation")
+        logger.info(f'Using device: {self.device} for segmentation')
         
         try:
             self.model = SAM(model_name).to(self.device)
-            logger.info(f"Loaded SAM model: {model_name} on {self.device}")
+            logger.info(f'Loaded SAM model: {model_name} on {self.device}')
             self.model.info()
         except Exception as e:
-            logger.error(f"Error loading SAM model: {e}")
-            raise RuntimeError(f"Failed to load segmentation model: {e}")
+            logger.error(f'Error loading SAM model: {e}')
+            raise RuntimeError(f'Failed to load segmentation model: {e}')
         
         self.mask_colors = self._generate_colors(30)
     
@@ -57,7 +58,7 @@ class SegmentationModel:
         return [(int(r), int(g), int(b)) for r, g, b in colors]
     
     def _convert_to_native_types(self, data: Any) -> Union[float, List]:
-        ### NOT REALLY NEEDED
+        # NOT REALLY NEEDED
         """
         Convert PyTorch tensors and other numeric types to Python native types.
         
@@ -87,7 +88,7 @@ class SegmentationModel:
                        each with 'mask', 'score', and 'bbox' keys.
         """
         if not boxes or not isinstance(image, np.ndarray):
-            logger.warning("Empty boxes or invalid image provided to segment_with_boxes")
+            logger.warning('Empty boxes or invalid image provided to segment_with_boxes')
             return []
         
         try:
@@ -96,11 +97,12 @@ class SegmentationModel:
             return self._process_segmentation_results(model_results, processed_boxes)
             
         except Exception as e:
-            logger.error(f"Error in segmentation with boxes: {e}")
+            logger.error(f'Error in segmentation with boxes: {e}')
             return []
     
-    def segment_with_points(self, image: np.ndarray, points: List, labels: Optional[List[int]] = None) -> List[Dict]:
-        ### COOL LIKE SAM DEMO BUT NOT REALLY USEFUL FOR US I THINK
+    def segment_with_points(self, image: np.ndarray, points: List, 
+                           labels: Optional[List[int]] = None) -> List[Dict]:
+        # COOL LIKE SAM DEMO BUT NOT REALLY USEFUL FOR US I THINK
         """
         Segment objects in an image using point prompts.
         
@@ -114,7 +116,7 @@ class SegmentationModel:
             List[Dict]: List of dictionaries containing segmentation results.
         """
         if not points or not isinstance(image, np.ndarray):
-            logger.warning("Empty points or invalid image provided to segment_with_points")
+            logger.warning('Empty points or invalid image provided to segment_with_points')
             return []
         
         try:
@@ -126,15 +128,16 @@ class SegmentationModel:
                                    else int(label.item()) for label in labels]
             
             model_results = self.model(image, points=processed_points, 
-                                       labels=processed_labels, verbose=False)
+                                      labels=processed_labels, verbose=False)
             
             return self._process_segmentation_results(model_results)
             
         except Exception as e:
-            logger.error(f"Error in segmentation with points: {e}")
+            logger.error(f'Error in segmentation with points: {e}')
             return []
     
-    def _process_segmentation_results(self, model_results: Any, boxes: Optional[List] = None) -> List[Dict]:
+    def _process_segmentation_results(self, model_results: Any, 
+                                     boxes: Optional[List] = None) -> List[Dict]:
         """
         Args:
             model_results: Raw output from the SAM model.
@@ -201,14 +204,14 @@ class SegmentationModel:
         return result
     
     def process_video(self, source: str, output_path: Optional[str] = None) -> None:
-        ### USEFUL FOR TESTING PURPOSES / DEMOs
+        # USEFUL FOR TESTING PURPOSES / DEMOs
         """
         Args:
             source (str): Path to the input video file.
             output_path (str, optional): Path to save the output video.
         """
         if not os.path.exists(source):
-            logger.error(f"Video source not found: {source}")
+            logger.error(f'Video source not found: {source}')
             return
             
         try:
@@ -216,11 +219,12 @@ class SegmentationModel:
             if output_path:
                 for i, result in enumerate(results):
                     result.save(output_path)
-                logger.info(f"Saved processed video to: {output_path}")
+                logger.info(f'Saved processed video to: {output_path}')
         except Exception as e:
-            logger.error(f"Error processing video: {e}")
+            logger.error(f'Error processing video: {e}')
     
-    def combine_with_detection(self, image: np.ndarray, detections: List) -> Tuple[np.ndarray, List[Dict]]:
+    def combine_with_detection(self, image: np.ndarray, 
+                              detections: List) -> Tuple[np.ndarray, List[Dict]]:
         """
         Combine object detection and segmentation results.
         
@@ -254,7 +258,7 @@ class SegmentationModel:
                 x1, y1, x2, y2 = map(int, box)
                 
                 obj_id_str = str(int(object_id)) if object_id is not None else 'N/A'
-                label = f"ID: {obj_id_str} | Class: {class_id} | {float(score):.2f}"
+                label = f'ID: {obj_id_str} | Class: {class_id} | {float(score):.2f}'
                 
                 y_pos = max(y1 - 10, 10)
                 cv2.putText(annotated_image, label, (x1, y_pos), 

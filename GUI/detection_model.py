@@ -7,12 +7,14 @@ from collections import deque
 from typing import List, Tuple, Dict, Optional, Union, Any
 import logging
 
-### For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
+# For whoever is reading this, "_func" means the function "func" is internal to the class and not to be used outside of it
 
-#TODO: handle other models, improve tracking
+# TODO: handle other models, improve tracking
 
-logging.basicConfig(filename='detection.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename='detection.log', level=logging.INFO,
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class ObjectDetector:
     """Class for detecting and tracking objects using YOLO models."""
@@ -29,12 +31,13 @@ class ObjectDetector:
     TRAJECTORY_MAX_LEN = 10
     MAX_DETECTIONS = 10
     
-    def __init__(self, 
-                 model_size: str = 'small', 
-                 conf_thresh: float = 0.5, 
-                 iou_thres: float = 0.45, 
-                 classes: Optional[List[int]] = None, 
-                 device: Optional[str] = None):
+    def __init__(
+            self, 
+            model_size: str = 'small', 
+            conf_thresh: float = 0.5, 
+            iou_thres: float = 0.45, 
+            classes: Optional[List[int]] = None, 
+            device: Optional[str] = None):
         """
         Args:
             model_size (str): Size of the model ('nano', 'small', 'medium', 
@@ -46,11 +49,11 @@ class ObjectDetector:
                                   If None, the best available device is selected.
         """
         if not 0.0 <= conf_thresh <= 1.0:
-            logger.error("Invalid confidence threshold")
-            raise ValueError("Confidence threshold must be between 0.0 and 1.0")
+            logger.error('Invalid confidence threshold')
+            raise ValueError('Confidence threshold must be between 0.0 and 1.0')
         if not 0.0 <= iou_thres <= 1.0:
-            logger.error("Invalid IoU threshold")
-            raise ValueError("IoU threshold must be between 0.0 and 1.0")
+            logger.error('Invalid IoU threshold')
+            raise ValueError('IoU threshold must be between 0.0 and 1.0')
         
         # By default only detect bottles (for Demos)
         self.classes = classes if classes is not None else self.DEFAULT_BOTTLE_CLASS
@@ -60,14 +63,14 @@ class ObjectDetector:
                                hasattr(torch.backends, 'mps') and 
                                torch.backends.mps.is_available() else 'cpu')
         
-        logger.info(f"Using device: {self.device}")
+        logger.info(f'Using device: {self.device}')
         
         if self.device == 'mps':
             os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
         
         model_size_lower = model_size.lower()
         if model_size_lower not in self.MODEL_SIZE_MAP:
-            logger.warning(f"Unknown model size: {model_size}. Defaulting to 'small'")
+            logger.warning(f'Unknown model size: {model_size}. Defaulting to "small"')
             model_size_lower = 'small'
         
         model_name = self.MODEL_SIZE_MAP[model_size_lower]
@@ -75,9 +78,9 @@ class ObjectDetector:
         self.detector = None
         try:
             self.detector = YOLO(model_name)
-            logger.info(f"Loaded model: {model_name} with size {model_size} on device {self.device}")
+            logger.info(f'Loaded model: {model_name} with size {model_size} on device {self.device}')
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
+            logger.error(f'Error loading model: {e}')
 
         self.conf_threshold = conf_thresh
         self.iou_threshold = iou_thres
@@ -90,10 +93,12 @@ class ObjectDetector:
         # Used for tracking
         self.trajectories = {}
 
-    def detect_objects(self, 
-                      image: np.ndarray, 
-                      track: bool = True, 
-                      annotate: bool = True) -> Optional[Tuple[Optional[np.ndarray], List]]:
+    def detect_objects(
+            self, 
+            image: np.ndarray, 
+            track: bool = True, 
+            annotate: bool = True
+            ) -> Optional[Tuple[Optional[np.ndarray], List]]:
         """
         Args:
             image (np.ndarray): Input image.
@@ -107,11 +112,11 @@ class ObjectDetector:
               If detection fails, returns None.
         """
         if self.detector is None:
-            logger.error("Detector not initialized")
+            logger.error('Detector not initialized')
             return None
             
         if image is None or not isinstance(image, np.ndarray):
-            logger.error("Invalid image input")
+            logger.error('Invalid image input')
             return None
         
         detections = []
@@ -133,7 +138,7 @@ class ObjectDetector:
             else:
                 results = self.detector(image, **detection_params)
         except Exception as e:
-            logger.error(f"Error detecting objects: {e}")
+            logger.error(f'Error detecting objects: {e}')
             return None
         
         for predictions in results:
@@ -157,7 +162,8 @@ class ObjectDetector:
             else:
                 track_ids = np.array([None] * len(scores))
             
-            for i, (bbox_coord, score, class_id, track_id) in enumerate(zip(bbox_coords, scores, classes, track_ids)):
+            for i, (bbox_coord, score, class_id, track_id) in enumerate(zip(
+                    bbox_coords, scores, classes, track_ids)):
                 x1, y1, x2, y2 = bbox_coord
                 detection = [
                     [x1, y1, x2, y2],
@@ -194,7 +200,9 @@ class ObjectDetector:
                 predictions.boxes is not None and 
                 hasattr(predictions.boxes, 'id') and 
                 predictions.boxes.id is not None):
-                ids = predictions.boxes.id.cpu().numpy() if isinstance(predictions.boxes.id, torch.Tensor) else predictions.boxes.id
+                ids = (predictions.boxes.id.cpu().numpy() 
+                      if isinstance(predictions.boxes.id, torch.Tensor) 
+                      else predictions.boxes.id)
                 active_ids.update(int(id_) for id_ in ids if id_ is not None)
         
         for track_id in list(self.trajectories.keys()):
@@ -232,8 +240,8 @@ class ObjectDetector:
         
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
         
-        class_name = class_names.get(int(class_id), "Unknown")
-        label = f"ID: {track_id} | Class: {class_name} | Conf: {score:.2f}"
+        class_name = class_names.get(int(class_id), 'Unknown')
+        label = f'ID: {track_id} | Class: {class_name} | Conf: {score:.2f}'
         text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
         dim, baseline = text_size[0], text_size[1]
         cv2.rectangle(image, (x1, y1), (x1 + dim[0], y1 - dim[1] - baseline), (0, 255, 0), cv2.FILLED)
@@ -251,21 +259,22 @@ class ObjectDetector:
                 continue
 
             # Draw lines connecting trajectory points
-            ### Note that i am still not sure if this is the right way to do it nor if this is good enough for tracking.
-            ### It is something that should be (probably) improved.
+            # Note that i am still not sure if this is the right way to do it nor if this is good enough for tracking.
+            # It is something that should be (probably) improved.
             for i in range(1, len(trajectory)):
                 cv2.line(image, trajectory[i-1], trajectory[i], (255, 255, 0), 2)
     
     def get_class_names(self) -> Optional[Dict[int, str]]:
-        """
+        """Get the mapping of class IDs to class names.
+
         Returns:
             Optional[Dict[int, str]]: Dictionary mapping class IDs to class names,
                                      or None if the detector is not initialized.
         """
         if self.detector is None:
-            logger.warning("Cannot get class names: detector not initialized")
+            logger.warning('Cannot get class names: detector not initialized')
             return None
 
         if isinstance(self.detector.names, list):
-            return {i: name for i, name in enumerate(self.detector.names)}
+            return dict(enumerate(self.detector.names))
         return self.detector.names
