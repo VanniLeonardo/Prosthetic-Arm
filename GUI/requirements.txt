@@ -6,6 +6,7 @@ filterpy
 transformers
 opencv-python-headless # Or opencv-python if full package needed
 numpy
+lap>=0.5.12
 # ///////
 # action-msgs==2.0.2
 # action-tutorials-interfaces==0.33.5

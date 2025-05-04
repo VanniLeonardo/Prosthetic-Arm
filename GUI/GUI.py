@@ -11,6 +11,7 @@ import threading
 from queue import Queue, Empty
 from typing import List, Optional, Tuple, Dict, Any
 import logging
+from collections import deque # Added for FPS/Latency calculation
 
 # Import camera validation function
 try:
@@ -52,7 +53,8 @@ def base64_jpg_to_numpy(base64_string):
 
 # --- Camera Capture Thread ---
 class CameraThread(QtCore.QThread):
-    frame_captured = QtCore.Signal(object)
+    # Emit frame and capture timestamp
+    frame_captured = QtCore.Signal(object, float)
     camera_error = QtCore.Signal(str)
     camera_status = QtCore.Signal(str)  # New signal for camera status updates
 
@@ -114,10 +116,11 @@ class CameraThread(QtCore.QThread):
                     
                     # Try to read a frame
                     ret, frame = self.cap.read()
+                    capture_timestamp = time.time() # Timestamp for latency calculation
                     if ret:
                         # Frame successfully captured
                         self.last_frame_time = time.monotonic()
-                        self.frame_captured.emit(frame)
+                        self.frame_captured.emit(frame, capture_timestamp) # Emit with timestamp
                         consecutive_read_errors = 0
                     else:
                         # Failed to read frame
@@ -174,6 +177,7 @@ class WebSocketClientThread(threading.Thread):
     def __init__(self, server_uri, main_window):
         super().__init__()
         self.server_uri = server_uri; self.main_window = main_window; self.loop = None; self.websocket = None; self._is_running = False
+        # Queue stores tuples: (frame, capture_timestamp)
         self.outgoing_command_queue = asyncio.Queue(); self.outgoing_frame_queue = asyncio.Queue(maxsize=5); self._send_frames_flag = asyncio.Event()
     async def _run_client(self):
         self._is_running = True
@@ -200,9 +204,27 @@ class WebSocketClientThread(threading.Thread):
             async for message in self.websocket:
                 try:
                     data = json.loads(message); msg_type = data.get('type')
-                    if msg_type == 'frame': view = data.get('view'); base64_data = data.get('data'); frame = base64_jpg_to_numpy(base64_data); self.main_window.frame_received_signal.emit(view, frame) # Emit directly
+                    if msg_type == 'frame':
+                        view = data.get('view')
+                        base64_data = data.get('data')
+                        original_timestamp = data.get('original_timestamp') # Get original timestamp
+                        # --- DEBUG LOGGING ---
+                        if original_timestamp is None or original_timestamp <= 0:
+                            self.main_window.log_signal.emit(f"WARN: Received frame type '{view}' with invalid timestamp: {original_timestamp}")
+                        # --- END DEBUG ---
+                        frame = base64_jpg_to_numpy(base64_data)
+                        # Emit view, frame, and original_timestamp
+                        self.main_window.frame_received_signal.emit(view, frame, original_timestamp if original_timestamp else 0.0)
                     elif msg_type == 'log': log_data = data.get('data'); self.main_window.log_signal.emit(f"Server: {log_data}")
                     elif msg_type == 'status': status_data = data.get('data'); self.main_window.log_signal.emit(f"Server Status: {status_data}"); self._send_frames_flag.set() if status_data == 'ready_for_frame' else self._send_frames_flag.clear() if status_data == 'pipeline_stopped' else None
+                    # --- Handle Pipeline Latency ---
+                    elif msg_type == 'latency':
+                        latency_data = data.get('data')
+                        if isinstance(latency_data, (int, float)):
+                            self.main_window.pipeline_latency_signal.emit(float(latency_data))
+                        else:
+                            self.main_window.log_signal.emit(f"WARN: Received invalid latency data: {latency_data}")
+                    # --- End Handle Pipeline Latency ---
                 except Exception as e: self.main_window.log_signal.emit(f"Error processing msg: {e}")
         except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK): self.main_window.log_signal.emit("WS Consumer closed.")
         except Exception as e: self.main_window.log_signal.emit(f"WS Consumer error: {e}")
@@ -244,8 +266,8 @@ class WebSocketClientThread(threading.Thread):
             print("DEBUG: Command Producer finished.")
     async def _frame_producer(self):
         if not self.websocket: return # Should not happen
-        last_send_time = time.monotonic(); min_interval = 1.0 / 30.0
-        frame_count_sent = 0 
+        last_send_time = time.monotonic(); min_interval = 1.0 / 30.0 # Limit sending FPS
+        frame_count_sent = 0
         start_time_debug = time.time()
 
         try:
@@ -253,22 +275,27 @@ class WebSocketClientThread(threading.Thread):
                 # 1. Wait for permission to send
                 await self._send_frames_flag.wait()
 
-                # 2. Get frame from queue
-                try: frame_to_send = await asyncio.wait_for(self.outgoing_frame_queue.get(), timeout=0.1)
+                # 2. Get frame and timestamp from queue
+                try: frame_to_send, capture_timestamp = await asyncio.wait_for(self.outgoing_frame_queue.get(), timeout=0.1)
                 except asyncio.TimeoutError: continue
-                if frame_to_send is None: break
+                if frame_to_send is None: break # Sentinel value to stop
 
                 # 3. Rate Limiting
                 now = time.monotonic(); elapsed = now - last_send_time
                 if elapsed < min_interval: await asyncio.sleep(min_interval - elapsed)
 
-                # 4. Check if WebSocket is still valid and send frame
+                # 4. Check if WebSocket is still valid and send frame + timestamp
                 ws_conn = self.websocket
                 if ws_conn and self._send_frames_flag.is_set():
                     try:
                         base64_frame = numpy_to_base64_jpg(frame_to_send, quality=60)
                         if base64_frame:
-                            await ws_conn.send(json.dumps({'type': 'frame', 'data': base64_frame}))
+                            # Send frame data and original capture timestamp
+                            await ws_conn.send(json.dumps({
+                                'type': 'frame',
+                                'data': base64_frame,
+                                'timestamp': capture_timestamp # Include timestamp
+                            }))
                             last_send_time = time.monotonic()
                             frame_count_sent += 1
                             # if frame_count_sent % 60 == 0: print(f"Sent {frame_count_sent} frames in {time.time()-start_time_debug:.2f}s")
@@ -278,7 +305,7 @@ class WebSocketClientThread(threading.Thread):
                     except websockets.exceptions.ConnectionClosed:
                          self.main_window.log_signal.emit("Frame Producer: Connection closed during send.")
                          self.outgoing_frame_queue.task_done() # Mark done even if failed
-                         self._send_frames_flag.clear() 
+                         self._send_frames_flag.clear()
                          break
                     except Exception as e:
                          self.main_window.log_signal.emit(f"Frame Producer: Error during send: {e}")
@@ -304,30 +331,57 @@ class WebSocketClientThread(threading.Thread):
     def run(self):
         self.loop = asyncio.new_event_loop(); asyncio.set_event_loop(self.loop)
         try: self.loop.run_until_complete(self._run_client())
-        finally: self.loop.close(); self.main_window.log_signal.emit("WS Asyncio loop closed.")
+        finally:
+            # Ensure loop cleanup happens correctly
+            try:
+                if self.loop.is_running():
+                    self.loop.call_soon_threadsafe(self.loop.stop)
+                # Wait for loop to close if run_until_complete didn't finish
+                # self.loop.run_until_complete(self.loop.shutdown_asyncgens()) # Optional cleanup
+            except Exception as e:
+                print(f"Error during loop cleanup: {e}")
+            finally:
+                 if not self.loop.is_closed():
+                     self.loop.close()
+            self.main_window.log_signal.emit("WS Asyncio loop closed.")
+
     def send_command(self, command_dict):
         if self.loop and self._is_running: asyncio.run_coroutine_threadsafe(self.outgoing_command_queue.put(command_dict), self.loop)
         else: self.main_window.log_signal.emit("Cannot send command: WS client not running.")
-    def queue_frame_to_send(self, frame):
+
+    # Accept frame and timestamp
+    def queue_frame_to_send(self, frame, timestamp):
         if self.loop and self._is_running and self._send_frames_flag.is_set(): # Only queue if flag is set
-            try: self.outgoing_frame_queue.put_nowait(frame)
+            try:
+                # Put tuple (frame, timestamp) into the queue
+                self.outgoing_frame_queue.put_nowait((frame, timestamp))
             except asyncio.QueueFull: pass # Drop frame silently if queue full
             except Exception as e: self.main_window.log_signal.emit(f"Error queuing frame: {e}")
+
     def stop(self):
         self.main_window.log_signal.emit("Stop signal received for WS client.")
         self._is_running = False
         if self.loop and self.loop.is_running():
+             # Send sentinel values to producer queues
              asyncio.run_coroutine_threadsafe(self.outgoing_command_queue.put(None), self.loop)
              asyncio.run_coroutine_threadsafe(self.outgoing_frame_queue.put(None), self.loop)
+             # Close websocket connection
              ws_conn = self.websocket
-             if ws_conn: self.loop.call_soon_threadsafe(asyncio.create_task, ws_conn.close(code=1000))
+             if ws_conn:
+                 # Ensure close is called within the loop's thread
+                 self.loop.call_soon_threadsafe(asyncio.create_task, ws_conn.close(code=1000))
+             # Request loop stop (will happen after tasks finish/cancel)
+             # self.loop.call_soon_threadsafe(self.loop.stop) # Let run_client handle loop exit
         else: self.main_window.log_signal.emit("WS Client loop not running for stop.")
 
 # --- Main GUI Window (Simplified thread management) ---
 class MainWindow(QtWidgets.QMainWindow):
-    frame_received_signal = QtCore.Signal(str, object)
+    # Signal emits: view_type, frame_data, original_capture_timestamp
+    frame_received_signal = QtCore.Signal(str, object, float)
     log_signal = QtCore.Signal(str)
     connection_status_signal = QtCore.Signal(str)
+    # New signal for pipeline latency
+    pipeline_latency_signal = QtCore.Signal(float)
 
     def __init__(self):
         super().__init__()
@@ -340,9 +394,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.is_pipeline_running_remotely = False
         self.camera_status = "Inactive"
 
+        # FPS and Latency tracking
+        self.frame_timestamps = deque(maxlen=30) # Store timestamps of last 30 received frames for FPS
+        self.latencies = deque(maxlen=30) # Store last 30 end-to-end latency values
+        self.fps = 0.0
+        self.avg_e2e_latency_ms = 0.0 # Renamed for clarity
+        self.avg_pipeline_latency_ms = 0.0 # Added for core pipeline latency
+        self.base_window_title = "Demo" # Store base title
+
         self.frame_received_signal.connect(self.update_frame)
         self.log_signal.connect(self.log_message)
         self.connection_status_signal.connect(self.update_connection_status)
+        # Connect the new latency signal
+        self.pipeline_latency_signal.connect(self.update_pipeline_latency)
         
         # Setup additional UI components
         self.setup_ui()
@@ -365,7 +429,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except: pass; controls_layout.addWidget(self.device_combo)
         models_group = QtWidgets.QGroupBox("Model Settings (Server Paths)"); models_layout = QtWidgets.QFormLayout(models_group); self.yolo_size_combo = QtWidgets.QComboBox(); self.yolo_size_combo.addItems(YOLO_SIZES); self.yolo_size_combo.setCurrentText(self.config['yolo_model_size']); models_layout.addRow("YOLO Size:", self.yolo_size_combo); self.depth_size_combo = QtWidgets.QComboBox(); self.depth_size_combo.addItems(DEPTH_SIZES); self.depth_size_combo.setCurrentText(self.config['depth_model_size']); models_layout.addRow("Depth Model Size:", self.depth_size_combo); self.sam_model_edit = QtWidgets.QLineEdit(self.config['sam_model_name']); models_layout.addRow("SAM Model:", self.sam_model_edit); self.hand_model_edit = QtWidgets.QLineEdit(self.config['hand_model_path']); models_layout.addRow("Hand Model:", self.hand_model_edit); controls_layout.addWidget(models_group)
         det_group = QtWidgets.QGroupBox("Detection & Tracking"); det_layout = QtWidgets.QFormLayout(det_group); self.conf_spin = QtWidgets.QDoubleSpinBox(); self.conf_spin.setRange(0.01, 1.0); self.conf_spin.setSingleStep(0.05); self.conf_spin.setValue(self.config['conf_threshold']); det_layout.addRow("Confidence Threshold:", self.conf_spin); self.iou_spin = QtWidgets.QDoubleSpinBox(); self.iou_spin.setRange(0.01, 1.0); self.iou_spin.setSingleStep(0.05); self.iou_spin.setValue(self.config['iou_threshold']); det_layout.addRow("IoU Threshold:", self.iou_spin); self.classes_edit = QtWidgets.QLineEdit(str(self.config['classes'])[1:-1] if self.config['classes'] else ""); det_layout.addRow("Classes (e.g., 0, 39):", self.classes_edit); self.tracking_check = QtWidgets.QCheckBox("Enable Tracking"); self.tracking_check.setChecked(self.config['enable_tracking']); det_layout.addRow(self.tracking_check); controls_layout.addWidget(det_group)
-        feat_group = QtWidgets.QGroupBox("Features"); feat_layout = QtWidgets.QVBoxLayout(feat_group); self.segmentation_check = QtWidgets.QCheckBox("Enable Segmentation"); self.segmentation_check.setChecked(self.config['enable_segmentation']); feat_layout.addWidget(self.segmentation_check); self.hand_check = QtWidgets.QCheckBox("Enable Hand Landmarks"); self.hand_check.setChecked(self.config['enable_hand_landmarks']); feat_layout.addWidget(self.hand_check); self.bev_check = QtWidgets.QCheckBox("Enable Bird's Eye View"); self.bev_check.setChecked(self.config['enable_bev']); feat_layout.addWidget(self.bev_check); controls_layout.addWidget(feat_group)
+        feat_group = QtWidgets.QGroupBox("Features"); feat_layout = QtWidgets.QVBoxLayout(feat_group); self.segmentation_check = QtWidgets.QCheckBox("Enable Segmentation"); self.segmentation_check.setChecked(self.config['enable_segmentation']); feat_layout.addWidget(self.segmentation_check); self.hand_check = QtWidgets.QCheckBox("Enable Hand Landmarks"); self.hand_check.setChecked(self.config['enable_hand_landmarks']); self.hand_check.setEnabled(HAND_LANDMARKS_AVAILABLE); feat_layout.addWidget(self.hand_check); self.bev_check = QtWidgets.QCheckBox("Enable Bird's Eye View"); self.bev_check.setChecked(self.config['enable_bev']); feat_layout.addWidget(self.bev_check); controls_layout.addWidget(feat_group)
         controls_layout.addStretch()
         button_layout = QtWidgets.QHBoxLayout(); self.start_btn = QtWidgets.QPushButton("Start Pipeline (Remote)"); self.start_btn.setStyleSheet("background-color: lightgreen; padding: 10px;"); self.start_btn.clicked.connect(self.start_pipeline_remote); self.start_btn.setEnabled(False); button_layout.addWidget(self.start_btn); self.stop_btn = QtWidgets.QPushButton("Stop Pipeline (Remote)"); self.stop_btn.setStyleSheet("background-color: salmon; padding: 10px;"); self.stop_btn.clicked.connect(self.stop_pipeline_remote); self.stop_btn.setEnabled(False); button_layout.addWidget(self.stop_btn); controls_layout.addLayout(button_layout)
         main_layout.addWidget(controls_container)
@@ -379,9 +443,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.camera_thread and self.camera_thread.isRunning():
             self.log_message("Camera is already running")
             return
+        # Ensure previous thread is fully finished before starting a new one
         if self.camera_thread is not None:
-            self.log_message("Waiting for previous camera thread to finish...")
-            return
+             if not self.camera_thread.isFinished():
+                 self.log_message("Waiting for previous camera thread to finish...")
+                 # Optionally, force quit if it takes too long, but wait is safer
+                 self.camera_thread.wait(500) # Wait up to 500ms
+                 if not self.camera_thread.isFinished():
+                     self.log_message("WARN: Previous camera thread did not finish cleanly.")
+                     # self.camera_thread.terminate() # Use terminate as last resort
+             self.camera_thread = None # Clear reference after finished/waited
 
         cam_index = self.camera_index_spin.value()
         
@@ -436,13 +507,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.camera_status = status_message
         self.log_message(f"CAMERA STATUS: {status_message}")
         
-        # Update status in UI
-        if "Camera" in self.windowTitle():
-            # Strip the old status from the title
-            base_title = self.windowTitle().split(" - ")[0]
-            self.setWindowTitle(f"{base_title} - {status_message}")
-        else:
-            self.setWindowTitle(f"Demo - {status_message}")
+        # Update status in UI (e.g., window title)
+        self.update_window_title() # Use helper to update title
             
         # Log to file as well
         if hasattr(self, 'logger'):
@@ -455,38 +521,47 @@ class MainWindow(QtWidgets.QMainWindow):
         sender = self.sender()
         if sender == self.camera_thread:
             self.camera_thread = None
+            self.camera_status = "Inactive" # Update status
+            self.update_window_title() # Update title
             print("DEBUG: Cleared self.camera_thread reference.")
 
     def stop_local_camera(self):
         if self.camera_thread and self.camera_thread.isRunning():
              self.log_message("Requesting local camera stop...")
              self.camera_thread.stop()
+             # Don't clear reference here, wait for finished signal
         elif self.camera_thread:
              # Thread object exists but isn't running (maybe finished already)
              self.log_message("Local camera thread exists but is not running.")
-             self.camera_thread = None
+             self.camera_thread = None # Safe to clear if not running
+             self.camera_status = "Inactive"
+             self.update_window_title()
         else:
              self.log_message("Local camera not running.")
 
 
-    @QtCore.Slot(object)
-    def handle_local_frame(self, frame):
-        # Queue frame ONLY if pipeline is supposed to be running
+    # Slot accepts frame and timestamp
+    @QtCore.Slot(object, float)
+    def handle_local_frame(self, frame, timestamp):
+        # Queue frame and timestamp ONLY if pipeline is supposed to be running
         if self.is_connected and self.is_pipeline_running_remotely and self.ws_client_thread:
-            self.ws_client_thread.queue_frame_to_send(frame)
+            self.ws_client_thread.queue_frame_to_send(frame, timestamp)
 
     @QtCore.Slot(str)
     def handle_camera_error(self, error_message):
         self.log_message(f"CAMERA ERROR: {error_message}")
         # Stop trying to send frames if camera has error
-        self.is_pipeline_running_remotely = False 
-        if self.ws_client_thread and self.ws_client_thread._send_frames_flag:
-             self.ws_client_thread._send_frames_flag.clear()
+        if self.is_pipeline_running_remotely:
+            self.is_pipeline_running_remotely = False
+            if self.ws_client_thread and self.ws_client_thread._send_frames_flag:
+                 self.ws_client_thread._send_frames_flag.clear()
+            # Update UI buttons if needed
+            self.stop_btn.setEnabled(False); self.start_btn.setEnabled(self.is_connected)
 
-        self.stop_local_camera()
+        self.stop_local_camera() # Request stop, let finished signal handle cleanup
 
         # Show popup only for critical errors, not simple read failures
-        if "Could not open" in error_message or "initialize" in error_message:
+        if "Could not open" in error_message or "initialize" in error_message or "persistent read errors" in error_message:
             QtWidgets.QMessageBox.warning(self, "Camera Error", error_message)
 
 
@@ -502,24 +577,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def disconnect_from_server(self):
         print("DEBUG: disconnect_from_server called")
-        # 1. Stop local camera
+        # 1. Stop local camera first (prevents sending more frames)
         self.stop_local_camera()
 
-        # 2. Stop remote pipeline and WS thread
+        # 2. Stop remote pipeline (if running) and WS thread
         if self.ws_client_thread and self.ws_client_thread.is_alive():
-            print("DEBUG: WS Thread alive, stopping...") 
+            print("DEBUG: WS Thread alive, stopping...")
             self.log_message("Disconnecting WebSocket...")
+            # Send stop command if pipeline was running
             if self.is_pipeline_running_remotely:
-                self.stop_pipeline_remote(silent=True)
+                self.stop_pipeline_remote(silent=True) # Send stop command without logging "Cannot stop"
+            # Signal the thread to stop its operations and close connection
             self.ws_client_thread.stop()
+            # Don't join here, let the thread finish asynchronously
         else: self.log_message("WebSocket not connected or already stopping.")
 
         # 3. Update UI immediately (don't wait for thread signals necessarily)
-        self.update_connection_status('disconnected')
-
-        # 4. Clear reference if thread stopped (might be redundant if status update handles it)
-        # if self.ws_client_thread and not self.ws_client_thread.is_alive():
-        #      self.ws_client_thread = None
+        # The connection_status_signal emitted by the thread's finally block
+        # will handle the final UI update and cleanup.
+        # Setting is_connected = False here might be premature.
+        self.connection_status_label.setText("Status: Disconnecting...");
+        self.connection_status_label.setStyleSheet("color: orange;")
+        self.disconnect_btn.setEnabled(False) # Disable disconnect btn immediately
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
 
 
     # update_connection_status: Handles UI changes and camera start/stop logic
@@ -533,8 +614,9 @@ class MainWindow(QtWidgets.QMainWindow):
             # --- UI Changes for Connected State ---
             self.connection_status_label.setText("Status: Connected"); self.connection_status_label.setStyleSheet("color: green;")
             self.connect_btn.setEnabled(False); self.disconnect_btn.setEnabled(True)
+            # Enable start only if connected, stop remains disabled until started
             self.start_btn.setEnabled(True); self.stop_btn.setEnabled(False)
-            self.is_pipeline_running_remotely = False
+            self.is_pipeline_running_remotely = False # Reset pipeline state on new connection
             # --- Camera: Do NOT start automatically here ---
         else: # Disconnected or Error
             # --- UI Changes for Disconnected State ---
@@ -543,9 +625,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.start_btn.setEnabled(False); self.stop_btn.setEnabled(False)
             self.is_pipeline_running_remotely = False
             # --- Camera: Stop if it was running ---
-            self.stop_local_camera()
+            # Camera should already be stopped by disconnect_from_server or handle_camera_error
+            # self.stop_local_camera() # Redundant, but safe
             # --- Clear Video Labels ---
             for label in self.video_labels.values(): label.clear(); label.setText("Disconnected"); label.setStyleSheet("background-color: black; color: grey;")
+            # --- Reset FPS/Latency ---
+            self.frame_timestamps.clear()
+            self.latencies.clear()
+            self.fps = 0.0
+            self.avg_e2e_latency_ms = 0.0 # Renamed
+            self.avg_pipeline_latency_ms = 0.0 # Reset pipeline latency too
+            self.update_window_title() # Reset title
             # --- Clean up WS Thread Reference ---
             # Check if the thread object exists and is no longer alive
             if self.ws_client_thread is not None and not self.ws_client_thread.is_alive():
@@ -561,11 +651,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config['enable_tracking'] = self.tracking_check.isChecked(); self.config['enable_segmentation'] = self.segmentation_check.isChecked(); self.config['enable_hand_landmarks'] = self.hand_check.isChecked() if HAND_LANDMARKS_AVAILABLE else False; self.config['enable_bev'] = self.bev_check.isChecked()
 
     # --- update_frame ---
-    @QtCore.Slot(str, object)
-    def update_frame(self, frame_type, frame):
+    # Slot accepts view_type, frame, and original_timestamp
+    @QtCore.Slot(str, object, float)
+    def update_frame(self, frame_type, frame, original_timestamp):
         if frame_type in self.video_labels and isinstance(frame, np.ndarray):
-            try: label = self.video_labels[frame_type]; h, w, ch = frame.shape; bytes_per_line = ch * w; rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); qt_image = QtGui.QImage(rgb_frame.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888); pixmap = QtGui.QPixmap.fromImage(qt_image); scaled_pixmap = pixmap.scaled(label.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation); label.setPixmap(scaled_pixmap)
+            try:
+                # --- FPS Calculation ---
+                current_time = time.time()
+                self.frame_timestamps.append(current_time)
+                if len(self.frame_timestamps) > 1:
+                    time_diff = self.frame_timestamps[-1] - self.frame_timestamps[0]
+                    if time_diff > 0:
+                        self.fps = (len(self.frame_timestamps) -1) / time_diff
+
+                # --- End-to-End Latency Calculation ---
+                if original_timestamp > 0: # Check if valid timestamp received
+                    latency = current_time - original_timestamp
+                    self.latencies.append(latency)
+                    if self.latencies:
+                        self.avg_e2e_latency_ms = (sum(self.latencies) / len(self.latencies)) * 1000 # Renamed variable
+
+                # --- Update Window Title ---
+                # Only update title if it's the 'combined' frame to avoid excessive updates
+                if frame_type == 'combined':
+                    self.update_window_title()
+
+
+                # --- Display Frame ---
+                label = self.video_labels[frame_type]
+                h, w, ch = frame.shape
+                bytes_per_line = ch * w
+                # Convert BGR to RGB only if needed (check frame channel order if issues)
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                qt_image = QtGui.QImage(rgb_frame.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+                pixmap = QtGui.QPixmap.fromImage(qt_image)
+                # Scale pixmap smoothly while keeping aspect ratio
+                scaled_pixmap = pixmap.scaled(label.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
+                label.setPixmap(scaled_pixmap)
+
             except Exception as e: print(f"GUI Update Error '{frame_type}': {e}")
+
+    @QtCore.Slot(float)
+    def update_pipeline_latency(self, latency_ms):
+        """Updates the stored average pipeline latency."""
+        self.avg_pipeline_latency_ms = latency_ms
+        # No need to update title here, update_frame handles it for 'combined' frame
 
     # --- log_message ---
     @QtCore.Slot(str)
@@ -589,9 +719,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.logger.warning(message)
         elif "CAMERA STATUS" in message.upper():
             formatted_message = f'<span style="color: blue;">[{timestamp}] {message}</span>'
-            # Log to file as well
-            if hasattr(self, 'logger'):
-                self.logger.info(message)
+            # Log to file as well - Already logged in handle_camera_status
+            # if hasattr(self, 'logger'): self.logger.info(message)
         elif "CONNECTED" in message.upper():
             formatted_message = f'<span style="color: green;">[{timestamp}] {message}</span>'
             # Log to file as well
@@ -609,6 +738,27 @@ class MainWindow(QtWidgets.QMainWindow):
         # Scroll to the bottom to show the latest message
         self.log_area.verticalScrollBar().setValue(self.log_area.verticalScrollBar().maximum())
 
+    # --- Helper to update window title ---
+    def update_window_title(self):
+        """Updates the window title with current status, FPS, and Latencies."""
+        title_parts = [self.base_window_title]
+        if self.camera_status != "Inactive":
+            title_parts.append(f"Cam: {self.camera_status}")
+        if self.is_connected:
+            title_parts.append("Connected")
+            if self.is_pipeline_running_remotely:
+                 title_parts.append(f"FPS: {self.fps:.1f}")
+                 # Display both latencies
+                 title_parts.append(f"E2E Latency: {self.avg_e2e_latency_ms:.1f} ms")
+                 title_parts.append(f"Pipe Latency: {self.avg_pipeline_latency_ms:.1f} ms")
+        else:
+            title_parts.append("Disconnected")
+            # Reset pipeline latency on disconnect
+            self.avg_pipeline_latency_ms = 0.0
+
+        self.setWindowTitle(" - ".join(title_parts))
+
+
     # --- Remote Pipeline Control Methods ---
     def start_pipeline_remote(self):
         if self.is_connected and self.ws_client_thread:
@@ -616,20 +766,41 @@ class MainWindow(QtWidgets.QMainWindow):
             if not self.camera_thread or not self.camera_thread.isRunning():
                 self.start_local_camera()
                 # Potential issue: Start command might be sent before camera fully confirms OK.
-                # Could add a short QTimer delay here, or wait for a 'camera_ready' signal.
-                # Let's risk it for now.
+                # Consider waiting for a 'camera opened' status signal if issues arise.
+                # Let's risk it for now. If camera fails to start, handle_camera_error should prevent issues.
 
-            self.log_message("Sending start command to server...")
-            self.update_config_from_gui()
-            message = {'command': 'start', 'config': self.config}
-            self.ws_client_thread.send_command(message)
-            self.start_btn.setEnabled(False); self.stop_btn.setEnabled(True)
-            self.is_pipeline_running_remotely = True # Set state *after* sending command
+            # Check if camera started successfully before sending command
+            # Add a small delay to allow camera status to potentially update
+            QtCore.QTimer.singleShot(200, self._send_start_command)
+
         else: self.log_message("Cannot start: Not connected.")
+
+    def _send_start_command(self):
+        """Helper function to send start command after a short delay."""
+        # Re-check connection and camera status before sending
+        if not self.is_connected or not self.ws_client_thread:
+            self.log_message("Cannot start: Disconnected before command sent.")
+            return
+        if not self.camera_thread or not self.camera_thread.isRunning():
+             # Check status string as well, as isRunning might be slow to update
+             if "opened" not in self.camera_status.lower():
+                 self.log_message("Cannot start: Local camera failed to start.")
+                 # Ensure buttons are reset if camera failed
+                 self.start_btn.setEnabled(True); self.stop_btn.setEnabled(False)
+                 return
+
+        self.log_message("Sending start command to server...")
+        self.update_config_from_gui()
+        message = {'command': 'start', 'config': self.config}
+        self.ws_client_thread.send_command(message)
+        self.start_btn.setEnabled(False); self.stop_btn.setEnabled(True)
+        self.is_pipeline_running_remotely = True # Set state *after* sending command
+        self.update_window_title() # Update title
+
 
     def stop_pipeline_remote(self, silent=False):
          # --- DO NOT STOP CAMERA HERE ---
-         # self.stop_local_camera() # Only stop camera on disconnect/close
+         # Camera stops only on disconnect/close or error
 
          if self.is_connected and self.ws_client_thread:
              if not silent: self.log_message("Sending stop command to server...")
@@ -638,35 +809,46 @@ class MainWindow(QtWidgets.QMainWindow):
              # UI state changes
              self.stop_btn.setEnabled(False); self.start_btn.setEnabled(True)
              self.is_pipeline_running_remotely = False # Pipeline is stopping
-             # Client keeps sending frames until server confirms stopped via status or disconnects.
-             # Or clear send_frames_flag here? Let's rely on server status 'pipeline_stopped'.
+             # The server should send 'pipeline_stopped' status which clears the _send_frames_flag
+             # Clearing it proactively might cause issues if the stop command fails to reach server
              # if self.ws_client_thread._send_frames_flag:
-             #      self.ws_client_thread._send_frames_flag.clear() # Proactively stop frame sending
+             #      self.ws_client_thread._send_frames_flag.clear()
+             self.update_window_title() # Update title
 
          else:
-             if not silent: self.log_message("Cannot stop: Not connected.")
+             # Only log if not silent (e.g., called from disconnect)
+             if not silent: self.log_message("Cannot stop: Not connected or pipeline not running.")
 
 
     # --- closeEvent (Ensure proper shutdown order) ---
     def closeEvent(self, event):
         self.log_message("Close event: Stopping threads...")
         # 1. Stop local camera first (stops producing frames)
-        self.stop_local_camera()
+        # Use a blocking call here if necessary, but rely on disconnect
+        # self.stop_local_camera() # disconnect_from_server already calls this
+
         # 2. Stop remote pipeline and disconnect WebSocket
+        # This handles stopping the camera and the WS thread gracefully
         self.disconnect_from_server()
 
         print("Waiting briefly for threads to finish...")
         # Use QThread.wait() for QThreads, join for threading.Thread
+        # Give slightly more time for graceful shutdown
         if self.camera_thread and self.camera_thread.isRunning():
-             self.camera_thread.wait(300) # Wait max 300ms for CameraThread (QThread)
-        if self.ws_client_thread and self.ws_client_thread.is_alive():
-             self.ws_client_thread.join(0.3) # Wait max 300ms for WebSocketClientThread (threading.Thread)
+             print("Waiting for camera thread...")
+             finished = self.camera_thread.wait(500) # Wait max 500ms for CameraThread (QThread)
+             if not finished: print("WARN: Camera thread did not finish within timeout.")
+             else: print("Camera thread finished.")
+             self.camera_thread = None # Clear ref after waiting
 
-        # Check again if they stopped
-        if self.camera_thread and self.camera_thread.isRunning():
-            print("WARN: Camera thread did not stop gracefully.")
         if self.ws_client_thread and self.ws_client_thread.is_alive():
-             print("WARN: WebSocket thread did not stop gracefully.")
+             print("Waiting for WebSocket thread...")
+             self.ws_client_thread.join(0.5) # Wait max 500ms for WebSocketClientThread (threading.Thread)
+             if self.ws_client_thread.is_alive():
+                 print("WARN: WebSocket thread did not stop gracefully.")
+             else:
+                 print("WebSocket thread finished.")
+             self.ws_client_thread = None # Clear ref after waiting
 
         print("Proceeding with application close.")
         super().closeEvent(event)

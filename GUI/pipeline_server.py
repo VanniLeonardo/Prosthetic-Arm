@@ -9,6 +9,7 @@ import logging
 import time
 import threading
 import queue
+from collections import deque
 
 from app import HAND_LANDMARKS_AVAILABLE
 
@@ -34,6 +35,7 @@ stop_event = threading.Event()
 current_config = None
 clients = set()
 result_queue = queue.Queue(maxsize=100)
+# Queue now stores tuples: (frame, original_timestamp)
 incoming_frame_queue = queue.Queue(maxsize=10)
 
 # --- Frame Encoding/Decoding ---
@@ -60,6 +62,7 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
     bev = None
     width, height = 640, 480 # Assume default or get from first frame?
     hand_landmarker_model = None
+    pipeline_latencies = deque(maxlen=30) # For averaging pipeline latency
 
     try:
         logger.info("Pipeline thread started. Initializing models...")
@@ -82,18 +85,26 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
 
         # --- Main Loop ---
         while not stop_flag.is_set():
+            original_timestamp = 0.0 # Default timestamp
             try:
-                # Get frame from the queue shared with the websocket handler
-                frame_data = frames_q.get(timeout=0.5) # Wait max 0.5 sec
-                if frame_data is None: # Check for potential sentinel value
+                # Get frame and timestamp from the queue
+                frame_data_tuple = frames_q.get(timeout=0.5) # Wait max 0.5 sec
+                if frame_data_tuple is None: # Check for potential sentinel value
                      continue
+                # Unpack the frame and its original timestamp
+                original_frame, original_timestamp = frame_data_tuple
+
             except queue.Empty:
                 # No frame received, check stop flag and continue waiting
                 if stop_flag.is_set(): break
                 continue
+            except TypeError:
+                 logger.error("Received invalid data format from frame queue. Expected (frame, timestamp).")
+                 continue
 
-            # --- Frame received, process it ---
-            original_frame = frame_data
+            # --- Frame received, start timing core processing ---
+            core_processing_start_time = time.time()
+
             if frame_count == 0:
                  h_frame, w_frame, _ = original_frame.shape
                  if h_frame != height or w_frame != width:
@@ -112,7 +123,8 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
             if detector:
                 try: detect_result = detector.detect_objects(original_frame, track=config['enable_tracking'], annotate=True); detections = detect_result[1] if detect_result else []; detection_annotated_frame = detect_result[0] if detect_result else original_frame.copy()
                 except Exception as e: logger.error(f"Detection failed: {e}")
-            results_q.put({'type': 'frame', 'view': 'detection', 'data': numpy_to_base64_jpg(detection_annotated_frame)})
+            # Include original_timestamp in the result
+            results_q.put({'type': 'frame', 'view': 'detection', 'data': numpy_to_base64_jpg(detection_annotated_frame), 'original_timestamp': original_timestamp})
 
             # 2. Segmentation
             segmentation_results = []; segmentation_annotated_frame = np.zeros_like(original_frame)
@@ -120,7 +132,8 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                 try: segmentation_annotated_frame, segmentation_results = segmenter.combine_with_detection(original_frame.copy(), detections)
                 except Exception as e: logger.error(f"Segmentation failed: {e}")
             elif config['enable_segmentation']: cv2.putText(segmentation_annotated_frame, "Seg Disabled/No Dets", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0), 2)
-            results_q.put({'type': 'frame', 'view': 'segmentation', 'data': numpy_to_base64_jpg(segmentation_annotated_frame)})
+            # Include original_timestamp in the result
+            results_q.put({'type': 'frame', 'view': 'segmentation', 'data': numpy_to_base64_jpg(segmentation_annotated_frame), 'original_timestamp': original_timestamp})
 
             # 3. Depth Estimation
             depth_map = None; depth_colored = np.zeros_like(original_frame)
@@ -132,7 +145,8 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                         depth_colored = depth_estimator.colorize_depth(depth_map)
                     else: cv2.putText(depth_colored, "Depth None", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
                 except Exception as e: logger.error(f"Depth failed: {e}")
-            results_q.put({'type': 'frame', 'view': 'depth', 'data': numpy_to_base64_jpg(depth_colored)})
+            # Include original_timestamp in the result
+            results_q.put({'type': 'frame', 'view': 'depth', 'data': numpy_to_base64_jpg(depth_colored), 'original_timestamp': original_timestamp})
 
             # 4. Hand Landmarks
             hand_landmark_results = None
@@ -142,23 +156,37 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
 
             # 5. Process Detections for 3D/BEV
             boxes_3d, active_ids = [], []
-            if detections:
+            # Ensure depth_map is not None before processing detections
+            if detections and depth_map is not None:
                 try: boxes_3d, active_ids = process_detections(detections, depth_map, depth_estimator, detector, segmentation_results if config['enable_segmentation'] else None)
                 except Exception as e: logger.error(f"Processing detections failed: {e}")
+            elif detections and depth_map is None:
+                logger.warning("Skipping detection processing as depth_map is None.")
 
             if bbox3d_estimator and config['enable_tracking']:
                 bbox3d_estimator.cleanup_trackers(active_ids)
 
-            # Calc FPS based on processing time
-            frame_count += 1; current_time = time.time(); elapsed = current_time - start_time
-            if elapsed > 1.0: fps_value = frame_count / elapsed; fps_display = f"FPS: {fps_value:.1f}"; start_time = current_time; frame_count = 0
+            # Calc FPS based on processing time (This is separate from core latency)
+            frame_count += 1; current_time_fps = time.time(); elapsed = current_time_fps - start_time
+            if elapsed > 1.0: fps_value = frame_count / elapsed; fps_display = f"FPS: {fps_value:.1f}"; start_time = current_time_fps; frame_count = 0
 
-            # 6. Final Visualization
+            # 6. Final Visualization Preparation (Still part of core processing time)
             combined_frame = original_frame.copy()
             try:
                 combined_frame = visualize_results(combined_frame, boxes_3d, depth_colored, bbox3d_estimator, hand_landmarker_model, hand_landmark_results, bev if config.get('enable_bev') else None, fps_display, config['device'], config.get('sam_model_name') if config.get('enable_segmentation') else None, config.get('enable_segmentation'), config.get('enable_hand_landmarks'))
             except Exception as e: logger.error(f"Visualization failed: {e}")
-            results_q.put({'type': 'frame', 'view': 'combined', 'data': numpy_to_base64_jpg(combined_frame)})
+
+            # --- Core processing finished, calculate latency ---
+            core_processing_end_time = time.time()
+            pipeline_latency_ms = (core_processing_end_time - core_processing_start_time) * 1000
+            pipeline_latencies.append(pipeline_latency_ms)
+            avg_pipeline_latency_ms = sum(pipeline_latencies) / len(pipeline_latencies)
+
+            # --- Put results into queue (Outside core timing) ---
+            # Put combined frame result
+            results_q.put({'type': 'frame', 'view': 'combined', 'data': numpy_to_base64_jpg(combined_frame), 'original_timestamp': original_timestamp})
+            # Put pipeline latency result
+            results_q.put({'type': 'latency', 'data': avg_pipeline_latency_ms})
 
             # Mark frame as processed in the incoming queue
             frames_q.task_done()
@@ -227,10 +255,13 @@ async def handle_client(websocket):
                 elif msg_type == 'frame' and data.get('data'):
                     if pipeline_thread and pipeline_thread.is_alive() and not stop_event.is_set():
                          base64_frame = data['data']
+                         # Extract the original timestamp sent by the client
+                         original_timestamp = data.get('timestamp', 0.0) # Default to 0.0 if missing
                          frame = base64_jpg_to_numpy(base64_frame)
                          if frame is not None:
                              try:
-                                 incoming_frame_queue.put_nowait(frame)
+                                 # Put both frame and timestamp into the queue as a tuple
+                                 incoming_frame_queue.put_nowait((frame, original_timestamp))
                              except queue.Full:
                                  logger.warning("Incoming frame queue full. Dropping frame.")
                                  # await websocket.send(json.dumps({'type': 'status', 'data': 'server_busy'})) # Optional feedback
