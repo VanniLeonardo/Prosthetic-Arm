@@ -467,14 +467,14 @@ def main():
     config = {
         'source': "0",                  # Default camera index or video file path
         'output_path': None,            # Output video path, e.g., "output.mp4"
-        'yolo_model_size': "small",     # YOLO: 'nano', 'small', 'medium', 'large', 'extensive'
-        'depth_model_size': "small",    # Depth: 'small', 'base', 'large'
+        'yolo_model_size': "extensive",     # YOLO: 'nano', 'small', 'medium', 'large', 'extensive'
+        'depth_model_size': "large",    # Depth: 'small', 'base', 'large'
         'sam_model_name': "sam2.1_b.pt",   # Segmentation model file
         'device': 'cuda',               # Inference device: 'cuda', 'mps', 'cpu'
         'conf_threshold': 0.5,          # Detection confidence threshold
         'iou_threshold': 0.45,          # Detection IOU threshold
         'classes': [39],                # Classes to detect (e.g., [0] for person, [39] for bottle). None for all COCO classes.
-        'enable_tracking': True,        # Enable object tracking (YOLO)
+        'enable_tracking': False,        # Enable object tracking (YOLO)
         'enable_bev': True,             # Enable bird's eye view (XYView)
         # 'enable_pseudo_3d': True,     # This is handled by draw_box_3d now, maybe remove config?
         'enable_segmentation': True,   # Enable segmentation (SAM)
@@ -544,18 +544,21 @@ def main():
 
             # 1. Object Detection (+ Tracking)
             detections = []
-            detection_annotated_frame = processing_frame
+            detection_annotated_frame = original_frame.copy() # Start with original for annotation
             if detector:
                 try:
+                    # Get annotated frame and detections separately
                     detect_result = detector.detect_objects(
                         processing_frame,
                         track=config['enable_tracking'],
-                        annotate=False # Annotate later in visualize_results
+                        annotate=True # Get the annotated frame directly
                     )
                     if detect_result:
-                        _, detections = detect_result # We don't need the annotated image from here
+                        detection_annotated_frame, detections = detect_result
                     else:
                          logger.warning("Detection returned None")
+                         cv2.putText(detection_annotated_frame, "Detection Failed", (width // 2 - 50, height // 2),
+                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
                 except Exception as e:
                     logger.error(f"Object detection failed: {e}", exc_info=True)
@@ -563,27 +566,41 @@ def main():
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             else:
                 logger.warning("Object detector not initialized.")
+                cv2.putText(detection_annotated_frame, "Detector Not Init", (width // 2 - 50, height // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
 
             # 2. Segmentation (Optional, uses detections)
             segmentation_results = []
-            segmentation_annotated_frame = None # Only create if needed
-            if config['enable_segmentation'] and segmenter and detections:
-                try:
-                    boxes = [d[0] for d in detections] # Extract boxes
-                    # Run segmentation; assumes segment_with_boxes returns list of dicts {'mask', 'score', 'bbox'}
-                    segmentation_results = segmenter.segment_with_boxes(original_frame, boxes)
+            segmentation_annotated_frame = original_frame.copy() # Start with original
+            if config['enable_segmentation'] and segmenter:
+                if detections:
+                    try:
+                        boxes = [d[0] for d in detections] # Extract boxes
+                        # Run segmentation; assumes segment_with_boxes returns list of dicts {'mask', 'score', 'bbox'}
+                        segmentation_results = segmenter.segment_with_boxes(original_frame, boxes)
 
-                    # Create annotated frame if needed for separate display
-                    # segmentation_annotated_frame = segmenter.overlay_masks(original_frame.copy(), segmentation_results)
+                        # Create annotated frame if needed for separate display
+                        segmentation_annotated_frame = segmenter.overlay_masks(original_frame.copy(), segmentation_results)
 
-                except Exception as e:
-                    logger.error(f"Segmentation failed: {e}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"Segmentation failed: {e}", exc_info=True)
+                        cv2.putText(segmentation_annotated_frame, "Segmentation Error", (10, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                else:
+                     cv2.putText(segmentation_annotated_frame, "Segmentation: No Detections", (10, 30),
+                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            elif config['enable_segmentation']:
+                 cv2.putText(segmentation_annotated_frame, "Segmenter Not Init", (10, 30),
+                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            else:
+                 cv2.putText(segmentation_annotated_frame, "Segmentation Disabled", (10, 30),
+                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
 
 
             # 3. Depth Estimation
             depth_map = None
-            depth_colored = None
+            depth_colored = np.zeros((height, width, 3), dtype=np.uint8) # Default black frame
             if depth_estimator:
                 try:
                     # Use original_frame for depth for better alignment if detection modified processing_frame
@@ -598,15 +615,14 @@ def main():
                         depth_colored = depth_estimator.colorize_depth(depth_map)
                     else:
                         logger.warning("Depth estimation returned None.")
-                        # Create a black depth map as placeholder if needed for visualization consistency
-                        depth_colored = np.zeros((height, width, 3), dtype=np.uint8)
                         cv2.putText(depth_colored, "Depth N/A", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
 
                 except Exception as e:
                     logger.error(f"Depth estimation failed: {e}", exc_info=True)
-                    depth_colored = np.zeros((height, width, 3), dtype=np.uint8)
                     cv2.putText(depth_colored, "Depth Error", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            else:
+                 cv2.putText(depth_colored, "Depth Estimator Not Init", (10, 30),
+                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
 
             # 4. Hand Landmark Detection (Optional)
@@ -636,7 +652,7 @@ def main():
                  bbox3d_estimator.cleanup_trackers(active_ids)
 
 
-            # 6. Visualization
+            # 6. Visualization (Combined Frame)
             # Start with the original frame for the final composition
             result_frame = original_frame.copy()
             result_frame = visualize_results(
@@ -646,7 +662,7 @@ def main():
                 bbox3d_estimator,
                 hand_landmarker,           # Pass the model instance
                 hand_landmark_results,     # Pass the detection results
-                bev if config['enable_bev'] else None,
+                bev if config['enable_bev'] else None, # Pass BEV object for drawing ON combined frame
                 fps_display,
                 config['device'],
                 config['sam_model_name'] if config['enable_segmentation'] else None,
@@ -654,15 +670,31 @@ def main():
                 config['enable_hand_landmarks'] # Pass the flag
             )
 
-            # --- Display Results ---
-            cv2.imshow("3D Object Detection & Hand Tracking", result_frame)
+            # 7. Get Separate BEV Image
+            bev_image = None
+            if config['enable_bev'] and bev:
+                try:
+                    bev.reset()
+                    for box_3d in boxes_3d:
+                        bev.draw_box(box_3d)
+                    bev_image = bev.get_image()
+                except Exception as e:
+                    logger.error(f"Error generating separate BEV image: {e}", exc_info=True)
+                    # Create a placeholder error image for BEV
+                    bev_image = np.zeros((bev.height if bev else 300, bev.width if bev else 300, 3), dtype=np.uint8)
+                    cv2.putText(bev_image, "BEV Error", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
-            # Optional: Show intermediate results in separate windows
-            # if depth_colored is not None:
-            #    cv2.imshow("Depth Map", depth_colored)
-            # if segmentation_annotated_frame is not None:
-            #    cv2.imshow("Segmentation", segmentation_annotated_frame)
-            # cv2.imshow("Object Detection Raw", detection_annotated_frame) # Show frame with only basic YOLO boxes
+
+            # --- Display Results ---
+            cv2.imshow("1. Object Detection", detection_annotated_frame)
+            if segmentation_annotated_frame is not None:
+                cv2.imshow("2. Segmentation", segmentation_annotated_frame)
+            if depth_colored is not None:
+                cv2.imshow("3. Depth Estimation", depth_colored)
+            cv2.imshow("4. Combined View", result_frame)
+            if bev_image is not None:
+                cv2.imshow("5. Bird's Eye View (XY)", bev_image)
+
 
             # --- FPS Calculation ---
             frame_count += 1
@@ -681,10 +713,11 @@ def main():
             # --- Write to Output Video ---
             if out:
                 try:
+                    # Write the combined frame to the output file
                     out.write(result_frame)
                 except Exception as e:
                     logger.error(f"Error writing frame to output video: {e}")
-                    out.release()
+                    out.release() # Stop trying to write if error occurs
 
 
             # --- Handle User Input ---
@@ -708,7 +741,7 @@ def main():
         if 'cap' in locals() and cap and cap.isOpened():
             cap.release()
             logger.info("Video capture released.")
-        if 'out' in locals() and out:
+        if 'out' in locals() and out and out.isOpened(): # Check if out is valid and opened
             out.release()
             logger.info(f"Output video released. Saved to {config.get('output_path')}")
         if 'hand_landmarker' in locals() and hand_landmarker:
