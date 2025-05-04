@@ -8,3 +8,4 @@ NEUROSCIENCE_PATH = os.path.join(ROOT_DIR, "neuroscience")
 
 MIRRORED_CAMERA = True
 CAMERA_TYPE = 0
+CAMERA_REVERSE = True

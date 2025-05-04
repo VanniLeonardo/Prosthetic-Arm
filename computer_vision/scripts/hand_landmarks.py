@@ -82,10 +82,10 @@ class GraspPoseEvaluator:
 
                     pose = self.print_grasp_pose(detection_result)
 
-                    handedness = detection_result.handedness[idx]
+                    handedness = 'Right' if detection_result.handedness[idx] == 'Right' else 'Left'
                     cv2.putText(
                         image,
-                        f"{pose, handedness[0].category_name}",
+                        f"{pose, handedness}",
                         (text_x, text_y),
                         cv2.FONT_HERSHEY_DUPLEX,
                         FONT_SIZE,
