@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 from collections import deque
+import concurrent.futures
 
 import cv2
 import numpy as np
@@ -80,15 +81,17 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
     """Process frames received from the incoming_frame_queue."""
     global current_config
     bev = None
-    # Assume default or get from first frame?
     width, height = 640, 480
     hand_landmarker_model = None
-    # For averaging pipeline latency
+    executor = None
+
     pipeline_latencies = deque(maxlen=30)
 
     try:
         logger.info('Pipeline thread started. Initializing models...')
         results_q.put({'type': 'log', 'data': 'Initializing models...'})
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
         config['device'] = 'cuda' if config.get('device', 'cuda') == 'cuda' else 'cpu'
         current_config = config
@@ -109,182 +112,159 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
         fps_display = 'FPS: --'
         logger.info('Pipeline waiting for frames...')
         results_q.put({'type': 'log', 'data': 'Pipeline ready. Waiting for frames...'})
-        # Signal client
         results_q.put({'type': 'status', 'data': 'ready_for_frame'})
 
-        # --- Main Loop ---
         while not stop_flag.is_set():
-            # Default timestamp
             original_timestamp = 0.0
+            original_frame = None
             try:
-                # Get frame and timestamp from the queue
-                # Wait max 0.5 sec
                 frame_data_tuple = frames_q.get(timeout=0.5)
-                # Check for potential sentinel value
                 if frame_data_tuple is None:
                     continue
-                # Unpack the frame and its original timestamp
                 original_frame, original_timestamp = frame_data_tuple
-
             except queue.Empty:
-                # No frame received, check stop flag and continue waiting
                 if stop_flag.is_set():
                     break
                 continue
             except TypeError:
                 logger.error(
-                    'Received invalid data format from frame queue. '
-                    'Expected (frame, timestamp).'
+                    'Received invalid data format from frame queue. Expected (frame, timestamp).'
                 )
                 continue
+            
+            if original_frame is None:
+                logger.warning("Skipping iteration due to None frame from queue.")
+                continue
 
-            # --- Frame received, start timing core processing ---
             core_processing_start_time = time.time()
 
             if frame_count == 0:
                 h_frame, w_frame, _ = original_frame.shape
                 if h_frame != height or w_frame != width:
-                    logger.info(
-                        f'Received frame dimensions: {w_frame}x{h_frame}'
-                    )
+                    logger.info(f'Updating pipeline dimensions to: {w_frame}x{h_frame}')
                     width, height = w_frame, h_frame
-                    # Update components needing dimensions
-                    if (bbox3d_estimator and 
-                            hasattr(bbox3d_estimator, 'set_frame_dimensions')):
+                    if bbox3d_estimator and hasattr(bbox3d_estimator, 'set_frame_dimensions'):
                         bbox3d_estimator.set_frame_dimensions(width, height)
+                    if bev and hasattr(bev, 'set_frame_dimensions'):
+                        bev.set_frame_dimensions(width, height)
+            
+            detection_future = None
+            depth_future = None
+            hand_landmark_future = None
 
-            loop_start_t = time.time()
+            frame_for_detection = original_frame.copy()
+            frame_for_depth = original_frame
+            frame_for_hand_landmarks = original_frame
 
-            # --- Run Pipeline Steps ---
-
-            # 1. Detection
-            detections = []
-            detection_annotated_frame = original_frame.copy()
             if detector:
+                detection_future = executor.submit(
+                    detector.detect_objects,
+                    frame_for_detection,
+                    track=config['enable_tracking'],
+                    annotate=True
+                )
+            
+            if depth_estimator:
+                depth_future = executor.submit(depth_estimator.estimate_depth, frame_for_depth)
+
+            if config['enable_hand_landmarks'] and hand_landmarker_model:
+                hand_landmark_future = executor.submit(
+                    hand_landmarker_model.detect_landmarks, frame_for_hand_landmarks
+                )
+
+            detections = []
+            detection_annotated_frame = frame_for_detection
+            if detection_future:
                 try:
-                    detect_result = detector.detect_objects(
-                        original_frame,
-                        track=config['enable_tracking'],
-                        annotate=True
-                    )
+                    detect_result = detection_future.result()
                     if detect_result:
-                        detections = detect_result[1]
-                        detection_annotated_frame = detect_result[0]
+                        detection_annotated_frame, detections = detect_result
+                    else:
+                        logger.warning("Detection task returned None.")
+                        cv2.putText(detection_annotated_frame, "Detection None", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
                 except Exception as e:
-                    logger.error(f'Detection failed: {e}')
-            # Include original_timestamp in the result
+                    logger.error(f'Detection task failed: {e}', exc_info=True)
+                    cv2.putText(detection_annotated_frame, "Detection Error", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
+            
             results_q.put({
-                'type': 'frame',
-                'view': 'detection',
+                'type': 'frame', 'view': 'detection',
                 'data': numpy_to_base64_jpg(detection_annotated_frame),
                 'original_timestamp': original_timestamp
             })
 
-            # 2. Segmentation
+            depth_map = None
+            depth_colored = np.zeros_like(original_frame)
+            if depth_future:
+                try:
+                    depth_map = depth_future.result()
+                    if depth_map is not None:
+                        if depth_map.shape[:2] != (height, width):
+                            depth_map = cv2.resize(depth_map, (width, height), interpolation=cv2.INTER_NEAREST)
+                        depth_colored = depth_estimator.colorize_depth(depth_map)
+                    else:
+                        logger.warning("Depth estimation task returned None.")
+                        cv2.putText(depth_colored, "Depth None", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255),2)
+                except Exception as e:
+                    logger.error(f'Depth estimation task failed: {e}', exc_info=True)
+                    cv2.putText(depth_colored, "Depth Error", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
+            
+            results_q.put({
+                'type': 'frame', 'view': 'depth',
+                'data': numpy_to_base64_jpg(depth_colored),
+                'original_timestamp': original_timestamp
+            })
+            
+            hand_landmark_results = None
+            if hand_landmark_future:
+                try:
+                    hand_landmark_results = hand_landmark_future.result()
+                except Exception as e:
+                    logger.error(f'Hand landmark detection task failed: {e}', exc_info=True)
+
             segmentation_results = []
             segmentation_annotated_frame = np.zeros_like(original_frame)
-            if config['enable_segmentation'] and segmenter and detections:
-                try:
-                    segmentation_annotated_frame, segmentation_results = (
-                        segmenter.combine_with_detection(
-                            original_frame.copy(), detections
+            
+            if config['enable_segmentation'] and segmenter:
+                if detections:
+                    try:
+                        segmentation_annotated_frame, segmentation_results = (
+                            segmenter.combine_with_detection(
+                                original_frame.copy(), detections
+                            )
                         )
-                    )
-                except Exception as e:
-                    logger.error(f'Segmentation failed: {e}')
+                    except Exception as e:
+                        logger.error(f'Segmentation failed: {e}', exc_info=True)
+                        cv2.putText(segmentation_annotated_frame, "Seg Error", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
+                else:
+                    cv2.putText(segmentation_annotated_frame, "Seg: No Dets", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
             elif config['enable_segmentation']:
-                cv2.putText(
-                    segmentation_annotated_frame,
-                    'Seg Disabled/No Dets',
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (200, 200, 0),
-                    2
-                )
-            # Include original_timestamp in the result
+                 cv2.putText(segmentation_annotated_frame, "Seg Not Init", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
+            
             results_q.put({
-                'type': 'frame',
-                'view': 'segmentation',
+                'type': 'frame', 'view': 'segmentation',
                 'data': numpy_to_base64_jpg(segmentation_annotated_frame),
                 'original_timestamp': original_timestamp
             })
 
-            # 3. Depth Estimation
-            depth_map = None
-            depth_colored = np.zeros_like(original_frame)
-            if depth_estimator:
-                try:
-                    depth_map = depth_estimator.estimate_depth(original_frame)
-                    if depth_map is not None:
-                        if depth_map.shape[:2] != (height, width):
-                            depth_map = cv2.resize(
-                                depth_map,
-                                (width, height),
-                                interpolation=cv2.INTER_NEAREST
-                            )
-                        depth_colored = depth_estimator.colorize_depth(depth_map)
-                    else:
-                        cv2.putText(
-                            depth_colored,
-                            'Depth None',
-                            (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1,
-                            (255, 255, 255),
-                            2
-                        )
-                except Exception as e:
-                    logger.error(f'Depth failed: {e}')
-            # Include original_timestamp in the result
-            results_q.put({
-                'type': 'frame',
-                'view': 'depth',
-                'data': numpy_to_base64_jpg(depth_colored),
-                'original_timestamp': original_timestamp
-            })
-
-            # 4. Hand Landmarks
-            hand_landmark_results = None
-            if config['enable_hand_landmarks'] and hand_landmarker_model:
-                try:
-                    hand_landmark_results = hand_landmarker_model.detect_landmarks(
-                        original_frame
-                    )
-                except Exception as e:
-                    logger.error(f'Hand landmarks failed: {e}')
-
-            # 5. Process Detections for 3D/BEV
             boxes_3d, active_ids = [], []
-            # Ensure depth_map is not None before processing detections
-            if detections and depth_map is not None:
-                try:
-                    boxes_3d, active_ids = process_detections(
-                        detections,
-                        depth_map,
-                        depth_estimator,
-                        detector,
-                        (segmentation_results if config['enable_segmentation'] else None)
-                    )
-                except Exception as e:
-                    logger.error(f'Processing detections failed: {e}')
-            elif detections and depth_map is None:
-                logger.warning('Skipping detection processing as depth_map is None.')
-
+            if detections:
+                if depth_map is not None:
+                    try:
+                        boxes_3d, active_ids = process_detections(
+                            detections,
+                            depth_map,
+                            depth_estimator,
+                            detector,
+                            segmentation_results if config['enable_segmentation'] else None
+                        )
+                    except Exception as e:
+                        logger.error(f'process_detections failed: {e}', exc_info=True)
+                else:
+                    logger.warning("Skipping process_detections as depth_map is None.")
+            
             if bbox3d_estimator and config['enable_tracking']:
                 bbox3d_estimator.cleanup_trackers(active_ids)
 
-            # Calc FPS based on processing time (This is separate from core latency)
-            frame_count += 1
-            current_time_fps = time.time()
-            elapsed = current_time_fps - start_time
-            if elapsed > 1.0:
-                fps_value = frame_count / elapsed
-                fps_display = f'FPS: {fps_value:.1f}'
-                start_time = current_time_fps
-                frame_count = 0
-
-            # 6. Final Visualization Preparation (Still part of core processing time)
             combined_frame = original_frame.copy()
             try:
                 combined_frame = visualize_results(
@@ -294,53 +274,61 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                     bbox3d_estimator,
                     hand_landmarker_model,
                     hand_landmark_results,
-                    (bev if config.get('enable_bev') else None),
+                    bev if config.get('enable_bev', False) else None,
                     fps_display,
                     config['device'],
-                    (config.get('sam_model_name') if config.get('enable_segmentation') else None),
-                    config.get('enable_segmentation'),
-                    config.get('enable_hand_landmarks')
+                    config.get('sam_model_name') if config['enable_segmentation'] else None,
+                    config['enable_segmentation'],
+                    config['enable_hand_landmarks']
                 )
             except Exception as e:
-                logger.error(f'Visualization failed: {e}')
+                logger.error(f'visualize_results failed: {e}', exc_info=True)
+                cv2.putText(combined_frame, "Vis Error", (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
 
-            # --- Core processing finished, calculate latency ---
-            core_processing_end_time = time.time()
-            pipeline_latency_ms = (core_processing_end_time - core_processing_start_time) * 1000
-            pipeline_latencies.append(pipeline_latency_ms)
-            avg_pipeline_latency_ms = sum(pipeline_latencies) / len(pipeline_latencies)
-
-            # --- Put results into queue (Outside core timing) ---
-            # Put combined frame result
             results_q.put({
-                'type': 'frame',
-                'view': 'combined',
+                'type': 'frame', 'view': 'combined',
                 'data': numpy_to_base64_jpg(combined_frame),
                 'original_timestamp': original_timestamp
             })
-            # Put pipeline latency result
-            results_q.put({
-                'type': 'latency',
-                'data': avg_pipeline_latency_ms
-            })
 
-            # Mark frame as processed in the incoming queue
-            frames_q.task_done()
+            core_processing_end_time = time.time()
+            pipeline_latency_ms = (core_processing_end_time - core_processing_start_time) * 1000
+            pipeline_latencies.append(pipeline_latency_ms)
+            avg_pipeline_latency = sum(pipeline_latencies) / len(pipeline_latencies)
+            results_q.put({'type': 'latency', 'data': avg_pipeline_latency})
+            
+            frame_count += 1
+            if frame_count >= 10:
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                if elapsed_time > 0:
+                    current_fps = frame_count / elapsed_time
+                    fps_display = f'FPS: {current_fps:.1f}'
+                frame_count = 0
+                start_time = time.time()
 
-        # --- End of Loop ---
-        logger.info('Pipeline loop finished.')
+        logger.info("Pipeline runner stop flag set or loop exited.")
 
     except Exception as e:
-        logger.error(
-            f'FATAL ERROR in pipeline thread: {e}\n{traceback.format_exc()}'
-        )
-        results_q.put({'type': 'log', 'data': f'FATAL ERROR: {e}'})
+        logger.error(f"Critical error in pipeline_runner: {e}\n{traceback.format_exc()}")
+        results_q.put({'type': 'log', 'data': f'Pipeline CRITICAL ERROR: {e}'})
     finally:
-        # Release models if necessary
+        logger.info("Pipeline thread cleaning up...")
+        if executor:
+            logger.info("Shutting down thread pool executor...")
+            executor.shutdown(wait=True)
+            logger.info("Thread pool executor shut down.")
+        
         if hand_landmarker_model and hasattr(hand_landmarker_model, 'close'):
-            hand_landmarker_model.close()
-        logger.info('Pipeline thread resources released.')
-        results_q.put({'type': 'status', 'data': 'finished'})
+            try:
+                hand_landmarker_model.close()
+                logger.info("Hand landmarker model closed.")
+            except Exception as e_close:
+                logger.error(f"Error closing hand landmarker model: {e_close}")
+
+        results_q.put({'type': 'status', 'data': 'pipeline_stopped'})
+        results_q.put({'type': 'log', 'data': 'Pipeline thread stopped.'})
+        logger.info("Pipeline thread finished.")
 
 
 # --- WebSocket Handling ---
@@ -435,24 +423,17 @@ async def handle_client(websocket):
                     if (pipeline_thread and pipeline_thread.is_alive() and
                             not stop_event.is_set()):
                         base64_frame = data['data']
-                        # Extract the original timestamp sent by the client
-                        # Default to 0.0 if missing
                         original_timestamp = data.get('timestamp', 0.0)
                         frame = base64_jpg_to_numpy(base64_frame)
                         if frame is not None:
                             try:
-                                # Put both frame and timestamp into the queue as a tuple
                                 incoming_frame_queue.put_nowait((frame, original_timestamp))
                             except queue.Full:
                                 logger.warning('Incoming frame queue full. Dropping frame.')
-                                # Optional feedback
-                                # await websocket.send(json.dumps(
-                                #     {'type': 'status', 'data': 'server_busy'}
-                                # ))
                         else:
                             logger.warning('Failed to decode incoming frame.')
 
-                else:  # Unknown command/type
+                else:
                     logger.warning(
                         f'Unknown message: {data.get("command") or data.get("type")}'
                     )
@@ -502,7 +483,6 @@ async def main():
     if not PIPELINE_AVAILABLE:
         logger.critical('Pipeline components failed! Server may not work.')
     async with websockets.serve(handle_client, host, port, max_size=10*1024*1024):
-        # Run forever
         await asyncio.Future()
 
 

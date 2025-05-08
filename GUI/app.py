@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import torch
 from mediapipe.tasks.python import vision as mp_vision
+import concurrent.futures  # Added for thread pool
 
 # --- Import models ---
 from bbox3d import BBox3DEstimator, BirdEyeView, XYView
@@ -510,8 +511,8 @@ def main():
     config = {
         'source': '0',
         'output_path': None,
-        'yolo_model_size': 'extensive',
-        'depth_model_size': 'large',
+        'yolo_model_size': 'small',
+        'depth_model_size': 'small',
         'sam_model_name': 'sam2.1_b.pt',
         'device': 'cuda',
         'conf_threshold': 0.5,
@@ -519,7 +520,7 @@ def main():
         'classes': [39],
         'enable_tracking': False,
         'enable_bev': True,
-        'enable_segmentation': True,
+        'enable_segmentation': False,
         'enable_hand_landmarks': True,
         'hand_model_path': 'hand_landmarker.task',
         'num_hands': 2,
@@ -530,8 +531,13 @@ def main():
     }
 
     detector, depth_estimator, segmenter, bbox3d_estimator, hand_landmarker = None, None, None, None, None
+    executor = None  # Initialize executor
+
     try:
         detector, depth_estimator, segmenter, bbox3d_estimator, hand_landmarker = initialize_models(config)
+
+        # Create ThreadPoolExecutor
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
         bev = None
         if config['enable_bev']:
@@ -571,32 +577,59 @@ def main():
                 break
 
             original_frame = frame
-            processing_frame = frame.copy()
+            processing_frame_for_detection = frame.copy()
+
+            detection_future = None
+            depth_future = None
+            hand_landmark_future = None
+
+            if detector:
+                detection_future = executor.submit(
+                    detector.detect_objects,
+                    processing_frame_for_detection,
+                    track=config['enable_tracking'],
+                    annotate=True
+                )
+
+            if depth_estimator:
+                depth_future = executor.submit(depth_estimator.estimate_depth, original_frame)
+
+            if config['enable_hand_landmarks'] and hand_landmarker:
+                hand_landmark_future = executor.submit(hand_landmarker.detect_landmarks, original_frame)
 
             detections = []
             detection_annotated_frame = original_frame.copy()
-            if detector:
+            if detection_future:
                 try:
-                    detect_result = detector.detect_objects(
-                        processing_frame,
-                        track=config['enable_tracking'],
-                        annotate=True
-                    )
+                    detect_result = detection_future.result()
                     if detect_result:
                         detection_annotated_frame, detections = detect_result
                     else:
-                        logger.warning('Detection returned None')
+                        logger.warning('Detection task returned None')
                         cv2.putText(detection_annotated_frame, 'Detection Failed', (width // 2 - 50, height // 2),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
                 except Exception as e:
-                    logger.error(f'Object detection failed: {e}', exc_info=True)
+                    logger.error(f'Object detection task failed: {e}', exc_info=True)
                     cv2.putText(detection_annotated_frame, 'Detection Error', (width // 2 - 50, height // 2),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            else:
+            elif detector is None:
                 logger.warning('Object detector not initialized.')
                 cv2.putText(detection_annotated_frame, 'Detector Not Init', (width // 2 - 50, height // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+
+            depth_map = None
+            if depth_future:
+                try:
+                    depth_map = depth_future.result()
+                except Exception as e:
+                    logger.error(f'Depth estimation task failed: {e}', exc_info=True)
+
+            hand_landmark_results = None
+            if hand_landmark_future:
+                try:
+                    hand_landmark_results = hand_landmark_future.result()
+                except Exception as e:
+                    logger.error(f'Hand landmark detection task failed: {e}', exc_info=True)
 
             segmentation_results = []
             segmentation_annotated_frame = original_frame.copy()
@@ -605,9 +638,7 @@ def main():
                     try:
                         boxes = [d[0] for d in detections]
                         segmentation_results = segmenter.segment_with_boxes(original_frame, boxes)
-
                         segmentation_annotated_frame = segmenter.overlay_masks(original_frame.copy(), segmentation_results)
-
                     except Exception as e:
                         logger.error(f'Segmentation failed: {e}', exc_info=True)
                         cv2.putText(segmentation_annotated_frame, 'Segmentation Error', (10, 30),
@@ -622,35 +653,23 @@ def main():
                 cv2.putText(segmentation_annotated_frame, 'Segmentation Disabled', (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
 
-            depth_map = None
             depth_colored = np.zeros((height, width, 3), dtype=np.uint8)
             if depth_estimator:
-                try:
-                    depth_map = depth_estimator.estimate_depth(original_frame)
-
-                    if depth_map is not None:
+                if depth_map is not None:
+                    try:
                         if depth_map.shape[0] != height or depth_map.shape[1] != width:
                             logger.warning(f'Depth map size {depth_map.shape} differs from frame size {(height, width)}. Resizing depth map.')
                             depth_map = cv2.resize(depth_map, (width, height), interpolation=cv2.INTER_NEAREST)
-
                         depth_colored = depth_estimator.colorize_depth(depth_map)
-                    else:
-                        logger.warning('Depth estimation returned None.')
-                        cv2.putText(depth_colored, 'Depth N/A', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-                except Exception as e:
-                    logger.error(f'Depth estimation failed: {e}', exc_info=True)
-                    cv2.putText(depth_colored, 'Depth Error', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    except Exception as e:
+                        logger.error(f'Depth map processing (resize/colorize) failed: {e}', exc_info=True)
+                        cv2.putText(depth_colored, 'Depth Process Error', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                else:
+                    logger.warning('Depth estimation result is None (task may have failed or returned None).')
+                    cv2.putText(depth_colored, 'Depth N/A', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             else:
                 cv2.putText(depth_colored, 'Depth Estimator Not Init', (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-
-            hand_landmark_results = None
-            if config['enable_hand_landmarks'] and hand_landmarker:
-                try:
-                    hand_landmark_results = hand_landmarker.detect_landmarks(original_frame)
-                except Exception as e:
-                    logger.error(f'Hand landmark detection failed: {e}', exc_info=True)
 
             boxes_3d = []
             active_ids = []
@@ -720,6 +739,7 @@ def main():
                 except Exception as e:
                     logger.error(f'Error writing frame to output video: {e}')
                     out.release()
+                    out = None
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:
@@ -734,6 +754,10 @@ def main():
         logger.critical(f'An unexpected error occurred in the main loop: {e}', exc_info=True)
     finally:
         logger.info('Cleaning up resources...')
+        if executor:
+            logger.info('Shutting down thread pool executor...')
+            executor.shutdown(wait=True)
+            logger.info('Thread pool executor shut down.')
         if 'cap' in locals() and cap and cap.isOpened():
             cap.release()
             logger.info('Video capture released.')
@@ -743,13 +767,14 @@ def main():
         if 'hand_landmarker' in locals() and hand_landmarker:
             try:
                 hand_landmarker.close()
+                logger.info('Hand landmarker closed.')
             except Exception as e:
                 logger.error(f'Error closing hand landmarker: {e}')
 
         cv2.destroyAllWindows()
         logger.info('OpenCV windows destroyed.')
         logger.info('Application finished.')
-        sys.exit(0 if 'e' not in locals() else 1)
+        sys.exit(0 if 'e' not in locals() or e is None else 1)
 
 
 if __name__ == '__main__':
@@ -758,4 +783,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info('Program interrupted by user (Ctrl+C).')
         cv2.destroyAllWindows()
+        logger.info('OpenCV windows destroyed due to KeyboardInterrupt.')
         sys.exit(0)
