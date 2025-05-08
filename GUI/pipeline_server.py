@@ -148,20 +148,25 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                     if bev and hasattr(bev, 'set_frame_dimensions'):
                         bev.set_frame_dimensions(width, height)
             
+            # --- Submit tasks for parallel execution ---
             detection_future = None
             depth_future = None
             hand_landmark_future = None
+            segmentation_future = None # Added for segmentation
 
+            # Ensure a copy is used if the original_frame might be modified by a task
+            # or if tasks need pristine input.
             frame_for_detection = original_frame.copy()
-            frame_for_depth = original_frame
-            frame_for_hand_landmarks = original_frame
+            frame_for_depth = original_frame # Depth estimation usually doesn't modify
+            frame_for_hand_landmarks = original_frame # Hand landmarks usually doesn't modify
+            # Segmentation will use its own copy if it runs
 
             if detector:
                 detection_future = executor.submit(
                     detector.detect_objects,
                     frame_for_detection,
                     track=config['enable_tracking'],
-                    annotate=True
+                    annotate=True # Returns (annotated_frame, detections)
                 )
             
             if depth_estimator:
@@ -172,8 +177,9 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                     hand_landmarker_model.detect_landmarks, frame_for_hand_landmarks
                 )
 
+            # --- Collect detection results first, as segmentation might depend on it ---
             detections = []
-            detection_annotated_frame = frame_for_detection
+            detection_annotated_frame = frame_for_detection # Default to input if task fails early
             if detection_future:
                 try:
                     detect_result = detection_future.result()
@@ -192,8 +198,22 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                 'original_timestamp': original_timestamp
             })
 
+            # --- Submit segmentation task (conditionally, after detections are available) ---
+            if config['enable_segmentation'] and segmenter:
+                if detections: # Only run segmentation if there are detections
+                    boxes_for_segmentation = [d[0] for d in detections] # Extract bboxes
+                    # Pass a copy of the original_frame for segmentation input
+                    segmentation_future = executor.submit(
+                        segmenter.segment_with_boxes, 
+                        original_frame.copy(), 
+                        boxes_for_segmentation
+                    )
+                else:
+                    logger.info('Skipping segmentation submission as no objects were detected.')
+
+            # --- Collect results from other parallel tasks (depth, hand landmarks) ---
             depth_map = None
-            depth_colored = np.zeros_like(original_frame)
+            depth_colored = np.zeros_like(original_frame) # Default placeholder
             if depth_future:
                 try:
                     depth_map = depth_future.result()
@@ -221,31 +241,44 @@ def pipeline_runner(config, stop_flag, results_q, frames_q):
                 except Exception as e:
                     logger.error(f'Hand landmark detection task failed: {e}', exc_info=True)
 
-            segmentation_results = []
-            segmentation_annotated_frame = np.zeros_like(original_frame)
+            # --- Collect segmentation results (if task was submitted) ---
+            segmentation_results = [] # Raw results for process_detections
+            # Initialize with a copy for the 'segmentation' view. This ensures it exists.
+            segmentation_annotated_frame_for_view = original_frame.copy()
             
-            if config['enable_segmentation'] and segmenter:
-                if detections:
-                    try:
-                        segmentation_annotated_frame, segmentation_results = (
-                            segmenter.combine_with_detection(
-                                original_frame.copy(), detections
-                            )
+            if segmentation_future: # If segmentation task was submitted
+                try:
+                    raw_segmentation_output = segmentation_future.result() # List of dicts with 'mask', 'bbox'
+                    if raw_segmentation_output is not None:
+                        segmentation_results = raw_segmentation_output # Store raw results
+                        # Create annotated frame for display using a fresh copy of original_frame
+                        segmentation_annotated_frame_for_view = segmenter.overlay_masks(
+                            original_frame.copy(), 
+                            segmentation_results
                         )
-                    except Exception as e:
-                        logger.error(f'Segmentation failed: {e}', exc_info=True)
-                        cv2.putText(segmentation_annotated_frame, "Seg Error", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
-                else:
-                    cv2.putText(segmentation_annotated_frame, "Seg: No Dets", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
-            elif config['enable_segmentation']:
-                 cv2.putText(segmentation_annotated_frame, "Seg Not Init", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
-            
+                    else:
+                        logger.warning("Segmentation task returned None.")
+                        cv2.putText(segmentation_annotated_frame_for_view, "Seg None", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,165,255),2)
+                except Exception as e:
+                    logger.error(f'Segmentation task failed: {e}', exc_info=True)
+                    cv2.putText(segmentation_annotated_frame_for_view, "Seg Error", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255),2)
+            elif config['enable_segmentation'] and segmenter: # Segmentation enabled, model loaded
+                if not detections: # but no detections were found for segmentation input
+                    cv2.putText(segmentation_annotated_frame_for_view, "Seg: No Dets", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
+            elif config['enable_segmentation'] and not segmenter: # Segmentation enabled but model failed to load
+                 cv2.putText(segmentation_annotated_frame_for_view, "Seg Not Init", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (200,200,0),2)
+            else: # Segmentation disabled
+                # This assumes that if segmentation is disabled, no other text has been put on this frame yet.
+                # If other conditions (like Not Init, No Dets) are true, they will take precedence.
+                cv2.putText(segmentation_annotated_frame_for_view, "Seg Disabled", (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (128,128,128),2)
+
             results_q.put({
                 'type': 'frame', 'view': 'segmentation',
-                'data': numpy_to_base64_jpg(segmentation_annotated_frame),
+                'data': numpy_to_base64_jpg(segmentation_annotated_frame_for_view),
                 'original_timestamp': original_timestamp
             })
 
+            # 5. Process Detections for 3D/BEV (Depends on detections and depth_map)
             boxes_3d, active_ids = [], []
             if detections:
                 if depth_map is not None:

@@ -537,7 +537,7 @@ def main():
         detector, depth_estimator, segmenter, bbox3d_estimator, hand_landmarker = initialize_models(config)
 
         # Create ThreadPoolExecutor
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
         bev = None
         if config['enable_bev']:
@@ -582,6 +582,7 @@ def main():
             detection_future = None
             depth_future = None
             hand_landmark_future = None
+            segmentation_future = None
 
             if detector:
                 detection_future = executor.submit(
@@ -617,6 +618,17 @@ def main():
                 cv2.putText(detection_annotated_frame, 'Detector Not Init', (width // 2 - 50, height // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
 
+            if config['enable_segmentation'] and segmenter:
+                if detections:
+                    boxes_for_segmentation = [d[0] for d in detections]
+                    segmentation_future = executor.submit(
+                        segmenter.segment_with_boxes,
+                        original_frame.copy(),
+                        boxes_for_segmentation
+                    )
+                else:
+                    logger.info('Skipping segmentation submission as no objects were detected.')
+
             depth_map = None
             if depth_future:
                 try:
@@ -633,20 +645,28 @@ def main():
 
             segmentation_results = []
             segmentation_annotated_frame = original_frame.copy()
-            if config['enable_segmentation'] and segmenter:
-                if detections:
-                    try:
-                        boxes = [d[0] for d in detections]
-                        segmentation_results = segmenter.segment_with_boxes(original_frame, boxes)
-                        segmentation_annotated_frame = segmenter.overlay_masks(original_frame.copy(), segmentation_results)
-                    except Exception as e:
-                        logger.error(f'Segmentation failed: {e}', exc_info=True)
-                        cv2.putText(segmentation_annotated_frame, 'Segmentation Error', (10, 30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                else:
+            if segmentation_future:
+                try:
+                    raw_segmentation_output = segmentation_future.result()
+                    if raw_segmentation_output is not None:
+                        segmentation_results = raw_segmentation_output
+                        segmentation_annotated_frame = segmenter.overlay_masks(
+                            original_frame.copy(),
+                            segmentation_results
+                        )
+                    else:
+                        logger.warning('Segmentation task returned None.')
+                        cv2.putText(segmentation_annotated_frame, 'Segmentation None', (10, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+                except Exception as e:
+                    logger.error(f'Segmentation task failed: {e}', exc_info=True)
+                    cv2.putText(segmentation_annotated_frame, 'Segmentation Error', (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            elif config['enable_segmentation'] and segmenter:
+                if not detections:
                     cv2.putText(segmentation_annotated_frame, 'Segmentation: No Detections', (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
-            elif config['enable_segmentation']:
+            elif config['enable_segmentation'] and not segmenter:
                 cv2.putText(segmentation_annotated_frame, 'Segmenter Not Init', (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
             else:
