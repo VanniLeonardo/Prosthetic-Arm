@@ -32,9 +32,8 @@ Imagine a prosthetic arm that doesn't just react, but *understands*. This projec
 
 ## Live Demo Showcase
 
-<video width="640" controls>
-  <source src="https://github.com/user-attachments/assets/08345b81-a4ba-43a2-8265-181325969b3e">
-</video>
+
+https://github.com/user-attachments/assets/c49e658b-e2b3-4af0-97e4-ec45f0d9a6d6
 
 
 ---
