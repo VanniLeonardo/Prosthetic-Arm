@@ -2,6 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docker Pulls](https://img.shields.io/docker/pulls/vannileonardo/pipeline-server.svg)](https://hub.docker.com/r/vannileonardo/pipeline-server)
+[![Paper](https://img.shields.io/badge/arXiv-2503.11651-b31b1b)]()
 
 
 This project, developed in collaboration with the Bocconi AI and Neuroscience Student Association (BAINSA), aims to create an intelligent prosthetic arm controlled intuitively via EEG signals and guided by real-time visual understanding of the environment. This README focuses on the **Computer Vision pipeline**, a core component enabling the system to perceive objects, understand 3D space, track the user's hand, and validate grasp feasibility before execution.
@@ -12,7 +13,10 @@ This project, developed in collaboration with the Bocconi AI and Neuroscience St
 
 Imagine a prosthetic arm that doesn't just react, but *understands*. This project integrates **Neuroscience** (interpreting user intent from EEG), **Computer Vision** (analyzing the visual world), and **Robotics** (acting physically) to restore a significant degree of natural hand function. Our CV pipeline provides the crucial "eyes" for the system, enabling safer, more dexterous, and intuitive interaction with everyday objects.
 
-**`[Insert GIFS HERE OF THINGS LIKE IN PAPER]`**
+![](media/normal.gif)
+![](media/hand_closed.gif)
+![](media/too_far.gif)
+
 ---
 
 ## Key Features (CV Pipeline)
@@ -56,7 +60,7 @@ The prosthetic system operates through a coordinated flow:
 7.  **(Robotics)** Executes the grasp action.
 8.  **(Sensors - Planned)** Feedback (force, contact) refines the action.
 
-**`[system architecture here from diagrams.net/draw.io]`**
+![Computer Vision Pipeline](media/image.png)
 
 ---
 
