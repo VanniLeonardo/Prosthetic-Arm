@@ -13,9 +13,7 @@ This project, developed in collaboration with the Bocconi AI and Neuroscience St
 
 Imagine a prosthetic arm that doesn't just react, but *understands*. This project integrates **Neuroscience** (interpreting user intent from EEG), **Computer Vision** (analyzing the visual world), and **Robotics** (acting physically) to restore a significant degree of natural hand function. Our CV pipeline provides the crucial "eyes" for the system, enabling safer, more dexterous, and intuitive interaction with everyday objects.
 
-![](media/normal.gif)
-![](media/hand_closed.gif)
-![](media/too_far.gif)
+<img src="/media/normal.gif" width="30%" height="30%"/> <img src="/media/hand_closed.gif" width="30%" height="30%"/> <img src="/media/too_far.gif" width="30%" height="30%"/>
 
 ---
 
