@@ -148,43 +148,94 @@ class BBox3DEstimator:
         K = self._get_camera_matrix()
         return self._estimate_projection_matrix(K)
     
-    def estimate_3d_box(self, bbox_2d, depth_value, class_name, object_id=None):
+    def get_3d_points_in_bbox(self, bbox_2d, depth_map, mask=None):
         """
-        Estimate 3D bounding box from 2D bounding box and depth
-        
+        Extract 3D points from the depth map within the given 2D bounding box (vectorized for performance).
+        Args:
+            bbox_2d (list): [x1, y1, x2, y2]
+            depth_map (np.ndarray): depth map (uint8, 0-255)
+            mask (np.ndarray or None): binary mask (same shape as depth_map), True for object pixels
+        Returns:
+            np.ndarray: Nx3 array of 3D points (camera coordinates)
+        """
+        if depth_map is None:
+            return None
+        x1, y1, x2, y2 = map(int, bbox_2d)
+        K = self._get_camera_matrix()
+        K_inv = np.linalg.inv(K)
+        xs, ys = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
+        xs = xs.flatten()
+        ys = ys.flatten()
+        ds = depth_map[ys, xs] / 255.0
+        valid = ds > 0.01
+        if mask is not None:
+            valid = valid & (mask[ys, xs] > 0)
+        xs, ys, ds = xs[valid], ys[valid], ds[valid]
+        if len(xs) == 0:
+            return None
+        depths = 1.0 + ds * 9.0
+        pts_2d = np.stack([xs, ys, np.ones_like(xs)], axis=1).T  # shape (3, N)
+        pts_3d = (K_inv @ pts_2d) * depths  # broadcasting
+        pts_3d[1, :] *= 0.5  # keep y scaling as before
+        return pts_3d.T  # shape (N, 3)
+
+    def estimate_3d_box(self, bbox_2d, depth_value_or_map, class_name, object_id=None, mask=None):
+        """
+        Estimate 3D bounding box from 2D bounding box and depth or depth map.
         Args:
             bbox_2d (list): 2D bounding box [x1, y1, x2, y2]
-            depth_value (float): Depth value at the center of the bounding box
+            depth_value_or_map (float or np.ndarray): Depth value at the center or depth map
             class_name (str): Class name of the object
             object_id (int): Object ID for tracking (None for no tracking)
-            
+            mask (np.ndarray or None): binary mask for object pixels
         Returns:
             dict: 3D bounding box parameters
         """
-        # Get 2D box center and dimensions
+        use_depth_map = isinstance(depth_value_or_map, np.ndarray)
+        if use_depth_map:
+            depth_map = depth_value_or_map
+            points = self.get_3d_points_in_bbox(bbox_2d, depth_map, mask=mask)
+            if points is not None and len(points) >= 10:
+                med = np.median(points, axis=0)
+                dists = np.linalg.norm(points - med, axis=1)
+                points = points[dists < 2 * np.std(dists)]
+                center = np.median(points, axis=0)
+                min_pt = np.percentile(points, 10, axis=0)
+                max_pt = np.percentile(points, 90, axis=0)
+                extents = max_pt - min_pt
+                dimensions = np.abs(extents)
+                if np.any(dimensions < 1e-2) and class_name.lower() in self.dims:
+                    dimensions = self.dims[class_name.lower()].copy()
+                orientation = self._estimate_orientation(bbox_2d, center, class_name)
+                box_3d = {
+                    'dimensions': dimensions,
+                    'location': center,
+                    'orientation': orientation,
+                    'bbox_2d': bbox_2d,
+                    'object_id': object_id,
+                    'class_name': class_name,
+                    'depth_value': np.median(points[:,2]) if points.shape[1] > 2 else 0.0
+                }
+                if object_id is not None:
+                    box_3d = self._apply_kalman_filter(box_3d, object_id)
+                    self.box_history[object_id].append(box_3d)
+                    if len(self.box_history[object_id]) > self.max_history:
+                        self.box_history[object_id].pop(0)
+                    box_3d = self._apply_temporal_filter(object_id)
+                return box_3d
+            depth_value = np.median(depth_map[int((bbox_2d[1]+bbox_2d[3])/2), int((bbox_2d[0]+bbox_2d[2])/2)]) / 255.0
+        else:
+            depth_value = depth_value_or_map
         x1, y1, x2, y2 = bbox_2d
         center_x = (x1 + x2) / 2
         center_y = (y1 + y2) / 2
-        width_2d = x2 - x1
-        height_2d = y2 - y1
-        
-        # Get dimensions for the class
         if class_name.lower() in self.dims:
             dimensions = self.dims[class_name.lower()].copy()
         else:
             dimensions = self.dims['bottle'].copy()
-        
-        # Convert depth to distance - use a larger range for better visualization
-        # Map depth_value (0-1) to a range of 1-10 meters
         distance = 1.0 + depth_value * 9.0
-        
-        # Calculate 3D location
         location = self._backproject_point(center_x, center_y, distance)
-        
-        # Estimate orientation
         orientation = self._estimate_orientation(bbox_2d, location, class_name)
-        
-        # Create 3D box
         box_3d = {
             'dimensions': dimensions,
             'location': location,

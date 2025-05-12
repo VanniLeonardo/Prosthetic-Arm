@@ -176,3 +176,6 @@ computer_vision/frames/*
 .ruff_cache/
 
 app.log
+
+# Models
+*.pt

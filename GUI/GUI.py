@@ -203,7 +203,7 @@ class PipelineWorker(QtCore.QThread):
                 if detections:
                     try:
                         boxes_3d, active_ids = process_detections(
-                            detections, depth_map, self.depth_estimator, self.detector,
+                            detections, depth_map, self.depth_estimator, self.detector, self.bbox3d_estimator,
                             segmentation_results if self.config['enable_segmentation'] else None
                         )
                     except Exception as e:

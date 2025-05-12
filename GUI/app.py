@@ -23,7 +23,7 @@ if hasattr(torch, 'backends') and hasattr(torch.backends, 'mps') and torch.backe
 # --- Import models ---
 from detection_model import ObjectDetector
 from depth_model import DepthEstimator
-from bbox3d import BBox3DEstimator, BirdEyeView, XYView
+from bbox3d import BBox3DEstimator, BirdEyeView
 from segmentation_model import SegmentationModel
 try:
     from hand_tracker import HandLandmarkerModel
@@ -148,6 +148,7 @@ def setup_video_source(source: Any) -> Tuple[cv2.VideoCapture, int, int, int]:
 
 def process_detections(detections: List, depth_map: np.ndarray,
                       depth_estimator: DepthEstimator, detector: ObjectDetector,
+                      bbox3d_estimator: BBox3DEstimator,
                       segmentation_results: Optional[List] = None) -> Tuple[List[Dict], List]:
     """
     Process detections to create 3D bounding boxes with depth information.
@@ -157,6 +158,7 @@ def process_detections(detections: List, depth_map: np.ndarray,
         depth_map: Depth map from depth estimator
         depth_estimator: Depth estimation model
         detector: Object detection model
+        bbox3d_estimator: 3D bounding box estimator
         segmentation_results: Optional segmentation results
 
     Returns:
@@ -188,23 +190,11 @@ def process_detections(detections: List, depth_map: np.ndarray,
                 x2_c = min(w, int(x2))
                 y2_c = min(h, int(y2))
                 clamped_bbox = (x1_c, y1_c, x2_c, y2_c)
+            else:
+                clamped_bbox = bbox
 
-                if x1_c < x2_c and y1_c < y2_c: # Check if the clamped box is valid
-                    depth_value = depth_estimator.depth_in_region(depth_map, clamped_bbox)
-                    # Normalize depth_value to 0-1 range if it's not already
-                    # Assuming depth map from estimate_depth is 0-255 uint8 (it should be)
-                    if depth_value is not None:
-                        depth_value = depth_value / 255.0
-                else:
-                    logger.warning(f"Invalid clamped bounding box {clamped_bbox} for detection {obj_id}. Skipping depth.")
-
-            box_3d = {
-                'bbox_2d': bbox,
-                'depth_value': depth_value if depth_value is not None else 0.0, # Use 0.0 as default if depth failed
-                'class_name': class_name,
-                'object_id': obj_id,
-                'score': score
-            }
+            # Find segmentation mask for this detection if available
+            mask = None
 
             # if segmentation_results:
             #     # Find corresponding mask (might need a better matching strategy than exact bbox)
@@ -239,7 +229,6 @@ def process_detections(detections: List, depth_map: np.ndarray,
                             seg_area = (x2_seg - x1_seg) * (y2_seg - y1_seg)
                             det_area = (x2_det - x1_det) * (y2_det - y1_det)
                             union_area = seg_area + det_area - inter_area
-                            
                             if union_area > 0:
                                 iou = inter_area / union_area
                                 if iou > best_iou:
@@ -248,11 +237,16 @@ def process_detections(detections: List, depth_map: np.ndarray,
                 
                 # If we found a good match, add the mask to the box_3d
                 if best_match_idx >= 0:
-                    box_3d['mask'] = segmentation_results[best_match_idx].get('mask')
-                    box_3d['segmentation_iou'] = best_iou  # Store IoU for debugging
+                    mask = segmentation_results[best_match_idx].get('mask')
+            # Use the improved 3D box estimator with mask if available
+            box_3d = bbox3d_estimator.estimate_3d_box(clamped_bbox, depth_map, class_name, obj_id, mask=mask)
+            box_3d['score'] = score  # Add score for visualization
+            if mask is not None:
+                box_3d['mask'] = mask
+                if segmentation_results and best_match_idx >= 0:
+                    box_3d['segmentation_iou'] = best_iou
 
             boxes_3d.append(box_3d)
-
             if obj_id is not None:
                 active_ids.append(obj_id)
 
@@ -596,6 +590,7 @@ def main():
                     depth_map, # Pass the raw depth map (e.g., 0-255)
                     depth_estimator,
                     detector,
+                    bbox3d_estimator,
                     segmentation_results if config['enable_segmentation'] else None
                  )
 
