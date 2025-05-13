@@ -246,7 +246,12 @@ Development is ongoing. The Computer Vision pipeline is functional and demonstra
 
 *   **Leonardo Vanni** (Project Lead, CV Lead) - [Email](mailto:leonardo.vanni@studbocconi.it)
 *   **Anna Notaro** (Neuroscience Lead) - [Email](mailto:anna.notaro@studbocconi.it)
-*   *(Add other BAINSA contributors)*
+*   **Ayan Beisenbek** (Computer Vision Team) - [Email](mailto:ayan.beisenbek@studbocconi.it)
+*   **Hugo Arsenio** (Robotics Team) - [Email](mailto:hugo.arsenio@studbocconi.it)
+*   **Dan Anghel** (Robotics Team) - [Email](mailto:dan.anghel@studbocconi.it)
+*   **Giovanni Nocerino** (Neuroscience Team) - [Email](mailto:giovanni.nocerino@studbocconi.it)
+
+
 
 ---
 
