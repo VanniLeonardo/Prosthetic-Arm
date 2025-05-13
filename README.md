@@ -1,7 +1,7 @@
 # Intelligent Prosthetic Arm: Vision-Guided Grasping
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Docker Pulls](https://img.shields.io/docker/pulls/vannileonardo/pipeline-server.svg)](https://hub.docker.com/r/vannileonardo/pipeline-server)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vannileonardo/pipeline_server.svg)](https://hub.docker.com/r/vannileonardo/pipeline_server)
 [![Paper](https://img.shields.io/badge/arXiv-2503.11651-b31b1b)]()
 
 
