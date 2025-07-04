@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docker Pulls](https://img.shields.io/docker/pulls/vannileonardo/pipeline_server.svg)](https://hub.docker.com/r/vannileonardo/pipeline_server)
-[![Paper](https://img.shields.io/badge/arXiv-2503.11651-b31b1b)]()
+[![Paper](https://img.shields.io/badge/)](https://www.researchgate.net/publication/393399982_Vision-Based_Grasp_Validation_for_Prosthetic_Arms_using_3D_Scene_Analysis)
 
 
 This project, developed in collaboration with the Bocconi AI and Neuroscience Student Association (BAINSA), aims to create an intelligent prosthetic arm controlled intuitively via EEG signals and guided by real-time visual understanding of the environment. This README focuses on the **Computer Vision pipeline**, a core component enabling the system to perceive objects, understand 3D space, track the user's hand, and validate grasp feasibility before execution.
