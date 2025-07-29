@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docker Pulls](https://img.shields.io/docker/pulls/vannileonardo/pipeline_server.svg)](https://hub.docker.com/r/vannileonardo/pipeline_server)
-[![Paper](https://img.shields.io/badge/)](https://www.researchgate.net/publication/393399982_Vision-Based_Grasp_Validation_for_Prosthetic_Arms_using_3D_Scene_Analysis)
+[![ResearchGate](https://img.shields.io/badge/ResearchGate-00CCBB?style=for-the-badge&logo=ResearchGate&logoColor=white)](https://www.researchgate.net/publication/393399982_Vision-Based_Grasp_Validation_for_Prosthetic_Arms_using_3D_Scene_Analysis)
 
 
 This project, developed in collaboration with the Bocconi AI and Neuroscience Student Association (BAINSA), aims to create an intelligent prosthetic arm controlled intuitively via EEG signals and guided by real-time visual understanding of the environment. This README focuses on the **Computer Vision pipeline**, a core component enabling the system to perceive objects, understand 3D space, track the user's hand, and validate grasp feasibility before execution.
@@ -12,6 +12,7 @@ This project, developed in collaboration with the Bocconi AI and Neuroscience St
 ## Overview
 
 Imagine a prosthetic arm that doesn't just react, but *understands*. This project integrates **Neuroscience** (interpreting user intent from EEG), **Computer Vision** (analyzing the visual world), and **Robotics** (acting physically) to restore a significant degree of natural hand function. Our CV pipeline provides the crucial "eyes" for the system, enabling safer, more dexterous, and intuitive interaction with everyday objects.
+<img src="https://github.com/user-attachments/assets/a8fc5406-c60b-4a9d-b889-d502804962df" width="50%" height="50%"/>
 
 <img src="/media/normal.gif" width="30%" height="30%"/> <img src="/media/hand_closed.gif" width="30%" height="30%"/> <img src="/media/too_far.gif" width="30%" height="30%"/>
 
@@ -37,6 +38,10 @@ Imagine a prosthetic arm that doesn't just react, but *understands*. This projec
 
 https://github.com/user-attachments/assets/c49e658b-e2b3-4af0-97e4-ec45f0d9a6d6
 
+
+<img src="https://github.com/user-attachments/assets/d9e21208-df26-43a1-8685-d20e9f104877" width="30%" height="30%"/>
+
+_Presentation at Accenture GenAI Studio_
 
 ---
 
